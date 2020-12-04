@@ -6,13 +6,10 @@ A HandleSystem Client written in python.
 
 > Handle System is a general-purpose global name service that allows secured name resolution and administration over networks such as the Internet.
 
-[official site](http://www.handle.net/)
-
-[RFC 3650 : Handle System Overview](https://tools.ietf.org/html/rfc3650)
-
-[RFC 3651 : Handle System Namespace and Service Definition](https://tools.ietf.org/html/rfc3651)
-
-[RFC 3652 : Handle System Protocol (v2.1)](https://tools.ietf.org/html/rfc3652)
+- [official site](http://www.handle.net/)
+- [RFC 3650 : Handle System Overview](https://tools.ietf.org/html/rfc3650)
+- [RFC 3651 : Handle System Namespace and Service Definition](https://tools.ietf.org/html/rfc3651)
+- [RFC 3652 : Handle System Protocol (v2.1)](https://tools.ietf.org/html/rfc3652)
 
 
 # 2. About this repository
@@ -21,7 +18,7 @@ Please note that the official site[1] has provided a client (also opensource ) w
 
 There are also some repository [4][5] implement a HandleSystem Client, but they all use HDL.NET® Proxy Server System [7] instead of directly interacting with a HandleSystem server.
 
-this repository is mainly for learning and researching purpose. The implementation is mainly based on three RFCs [2][3][4], also some reference to official client implementation.
+This repository is mainly for learning and researching purpose. The implementation is mainly based on three RFCs [2][3][4], also some reference to official client implementation. Codes are tested under Python 3.9
 
 # 3. Things to do
 
