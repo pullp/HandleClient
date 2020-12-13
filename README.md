@@ -24,10 +24,9 @@ This repository is mainly for learning and researching purpose. The implementati
 
 Still lots of things todo XD.
 
-- [ ] simple resolution request
+- [x] simple resolution request
 - [ ] detailed documentation
 - [ ] ...
-
 
 # 4. References
 
