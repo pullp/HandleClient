@@ -1,8 +1,7 @@
-#coding:utf-8
 from enum import Enum
 from struct import pack, unpack
-from datetime import datetime
 
+import common
 import utils
 
 """
@@ -80,9 +79,6 @@ Bits 3 to 15 are currently reserved and must be set to zero.
 
 """
 
-ENVELOPE_LEN    = 20
-HEADER_LEN      = 24
-
 class Envelope(object):
     class MF(Enum):
         MF_CP   = 1<<15 # MessageFlag:ComPressed
@@ -153,28 +149,32 @@ class Envelope(object):
         )
         return payload
 
-    # @staticmethod
-    def parse(self, payload):
+    @classmethod
+    def parse(cls, payload):
         assert type(payload)    == bytes
-        assert len(payload)     == ENVELOPE_LEN
+        assert len(payload)     == common.ENVELOPE_LEN
+        
+        evp = Envelope()
 
         vals = unpack("!BBHIIII", payload)
 
-        idx = 0
-        self.majorVersion   = vals[idx]
-        idx += 1
-        self.minorVersion   = vals[idx]
-        idx += 1
-        self.messageFlag    = vals[idx]
-        idx += 1
-        self.sessionId      = vals[idx]
-        idx += 1
-        self.requestId      = vals[idx]
-        idx += 1
-        self.sequenceNumber = vals[idx]
-        idx += 1
-        self.messageLength  = vals[idx]
-        idx += 1
+        index = 0
+        evp.majorVersion   = vals[index]
+        index += 1
+        evp.minorVersion   = vals[index]
+        index += 1
+        evp.messageFlag    = vals[index]
+        index += 1
+        evp.sessionId      = vals[index]
+        index += 1
+        evp.requestId      = vals[index]
+        index += 1
+        evp.sequenceNumber = vals[index]
+        index += 1
+        evp.messageLength  = vals[index]
+        index += 1
+
+        return evp
     
     def toDict(self):
         return {
@@ -282,19 +282,16 @@ class Header(object):
     # OpFlag
     # https://tools.ietf.org/html/rfc3652#section-2.2.2.3
     class OPF(Enum):
-        OPF_AT  = 1 << 31
-        OPF_CT  = 1 << 30
-        OPF_ENC = 1 << 29
-        OPF_REC = 1 << 28
-        OPF_CA  = 1 << 27
-        OPF_CN  = 1 << 26
-        OPF_KC  = 1 << 25
-        OPF_PO  = 1 << 24
-        OPF_RD  = 1 << 23
+        OPF_AT  = 1 << 31 # AuThoritative bit.
+        OPF_CT  = 1 << 30 # CerTified bit.
+        OPF_ENC = 1 << 29 # ENCryption bit.
+        OPF_REC = 1 << 28 # RECursive bit.
+        OPF_CA  = 1 << 27 # Cache Authentication.
+        OPF_CN  = 1 << 26 # ContiNuous bit.
+        OPF_KC  = 1 << 25 # Keep Connection bit.
+        OPF_PO  = 1 << 24 # Public Only bit.
+        OPF_RD  = 1 << 23 # Request-Digest bit.
         # OPF_USED    = 0x1ff
-
-    # class OF(Enum):
-    #     AT = 
 
     def __init__(self):
         """init each member with zero
@@ -366,52 +363,49 @@ class Header(object):
         )
         return payload
     
-    def parse(self, payload):
+    @classmethod
+    def parse(cls, payload):
         assert type(payload)    == bytes
-        assert len(payload)     == HEADER_LEN
+        assert len(payload)     == common.HEADER_LEN
+
+        hd = Header()
         vals = unpack("!IIIHBBII", payload)
-        idx = 0
-        self.opCode         = vals[idx]
-        idx += 1
-        self.responseCode   = vals[idx]
-        idx += 1
-        self.opFlag         = vals[idx]
-        idx += 1
-        self.siteInfoSerialNumber   = vals[idx]
-        idx += 1
-        self.recursionCount = vals[idx]
-        idx += 1
-        self.reserved1      = vals[idx]
-        idx += 1
-        self.expirationTime = vals[idx]
-        idx += 1
-        self.bodyLength     = vals[idx]
-        idx += 1
+        index = 0
+        hd.opCode         = vals[index]
+        index += 1
+        hd.responseCode   = vals[index]
+        index += 1
+        hd.opFlag         = vals[index]
+        index += 1
+        hd.siteInfoSerialNumber   = vals[index]
+        index += 1
+        hd.recursionCount = vals[index]
+        index += 1
+        hd.reserved1      = vals[index]
+        index += 1
+        hd.expirationTime = vals[index]
+        index += 1
+        hd.bodyLength     = vals[index]
+        index += 1
+
+        return hd
 
     def __str__(self):
-        res = ""
-        res += f"  opCode           : {self.opCode:#x}\n"
-        res += f"  responseCode     : {self.responseCode:#x}\n"
+        res = "Header:\n"
+        res += f"  opCode           : {utils.printableCode(Header.OC, self.opCode)} ({self.opCode:#x})\n"
+        res += f"  responseCode     : {utils.printableCode(Header.RC, self.responseCode)} ({self.responseCode:#x})\n"
         res += f"  opFlag           : {utils.printableFlags(Header.OPF, self.opFlag)} ({self.opFlag:#x})\n"
         res += f"  siteInfoSerialNumber   : {self.siteInfoSerialNumber:#x}\n"
         res += f"  recursionCount   : {self.recursionCount:#x}\n"
         # res += f"  reserved1      : {self.reserved1:#x}\n"
-        res += f"  expirationTime   : { datetime.utcfromtimestamp(self.expirationTime).strftime('%Y-%m-%d %H:%M:%S')}({self.expirationTime:d})\n"
+        res +=  (f"  expirationTime   : "
+                + f"{utils.formatTimestamp(self.expirationTime)}"
+                + f"({self.expirationTime:d})\n")
         res += f"  bodyLength       : {self.bodyLength:#x}\n"
         return res
 
-class Body(object):
-    def __init__(self, data):
-        self.data = data
-    
-    def pack(self):
-        payload = self.data
-        return payload
-    
-    @staticmethod
-    def parse(payload):
-        assert type(payload) == bytes
-        return payload
+Body = bytes
+
 
 class Credential(object):
     def __init__(self, ):
@@ -420,8 +414,12 @@ class Credential(object):
     def pack(self):
         pass
 
-    @staticmethod
-    def parse(payload):
+    @classmethod
+    def parse(cls, payload):
         assert type(payload) == bytes
-        # assert len(payload) == 
-        pass
+        cred = Credential()
+        return cred
+        # raise Exception("not impl")
+
+    def __str__(self):
+        return ""

@@ -1,10 +1,23 @@
-#coding:utf-8
-
+import time
+import socket
 from struct import pack, unpack 
+import logging
 
 # import message as msg
+import common
+import utils
 import message
+import request
+import response
+import handlevalue
+
+from handlevalue import HandleValue
 from message import Envelope, Header, Body, Credential
+
+logger = logging.getLogger(__name__)
+logger.setLevel(common.LOG_LEVEL)
+
+logger.addHandler(common.ch)
 
 """
 The Message Header of any query request must set its <OpCode> to
@@ -45,7 +58,7 @@ The Message Body for any query request is defined as follows:
         values regardless of their data type.
 """
 
-class QueryRequestBody(object):
+class ResolutionRequestBody(object):
     def __init__(self):
         self.handle     = b''
         self.indexList  = []
@@ -99,81 +112,110 @@ class QueryRequestBody(object):
             payload += (pack("!I", len(tp)) + tp)
         return payload
     
-    def parse(self, payload):
+    @classmethod
+    def parse(cls, payload):
         assert isinstance(payload, bytes)
-        self.__init__()
+
+        rrb = ResolutionRequestBody()
         offset  = 0
-        handleLen   = unpack("!I", payload[offset:offset+4])[0]
+        handleLen   = utils.u32(payload[offset:])
         offset  += 4
-        self.handle = payload[offset:offset+handleLen]
+        rrb.handle = payload[offset:offset+handleLen]
         offset  += handleLen
 
-        indexListSize = unpack("!I", payload[offset:offset+4])[0]
+        indexListSize = utils.u32(payload[offset:])
         offset  += 4
-        for i in range(0, indexListSize):
-            self.indexList.append(unpack("!I", payload[offset:offset+4])[0])
+        for _i in range(0, indexListSize):
+            rrb.indexList.append(utils.u32(payload[offset:]))
             offset  += 4
         
-        typeListSize = unpack("!I", payload[offset:offset+4])[0]
+        typeListSize = utils.u32(payload[offset:])
         offset  += 4
-        for i in range(0, typeListSize):
-            typeLen = unpack("!I", payload[offset:offset+4])[0]
+        for _i in range(0, typeListSize):
+            typeLen = utils.u32(payload[offset:])
             offset  += 4
-            self.typeList.append(payload[offset:offset+typeLen])
+            rrb.typeList.append(payload[offset:offset+typeLen])
             offset += typeLen
-    
+        assert offset == len(payload)
+
+        return rrb
+
     def __str__(self):
-        res = "QueryRequestBody\n"
-        res += f"  handle       : {self.handle.decode('utf8')}\n"
+        res = "ResolutionRequestBody:\n"
+        res += f"  handle       : {self.handle.decode(common.TEXT_ENCODING)}\n"
         res += f"  indexList    : {self.indexList}\n"
         res += f"  typeList     : {list(map(lambda x : x.decode(), self.typeList))}\n"
         return res
 
 
-class QueryResponse(object):
-    def __init__(self):
-        pass
-
 def test():
-    body = QueryRequestBody()
+    body = ResolutionRequestBody()
     body.setVals(b"handle1234", [1, 2, 3], [u"关山难越".encode('utf8'), b"t2"])
     print(body)
     p1 = body.pack()
 
-    body2 = QueryRequestBody()
-    body2.parse(p1)
+    body2 = ResolutionRequestBody.parse(p1)
     print(body2)
 
-def simpleResolutionRequest(handle):
+def simpleResolutionTest(handle, serverAddr=''):
     assert isinstance(handle, str)
-    import time
 
+    # construct payload
     evp = Envelope()
     evp.setVersion(2, 10)
-    evp.setRequestId(0x1234)
+    evp.setMessageFlag(0x020b)
+    evp.setRequestId(0x1235)
 
     hd  = Header()
     hd.setOpCode(Header.OC.OC_RESOLUTION.value)
     hd.setResponseCode(0)
-    hd.setOpFlag(Header.OPF.OPF_CT.value | Header.OPF.OPF_REC.value | Header.OPF.OPF_CA.value | Header.OPF.OPF_PO.value)
+    hd.setOpFlag(Header.OPF.OPF_CT.value 
+            | Header.OPF.OPF_REC.value 
+            | Header.OPF.OPF_CA.value 
+            | Header.OPF.OPF_PO.value)
     hd.setSiteInfoSerialNumber(6)
     hd.setRecursionCount(0)
-    hd.setExpirationTime(int(time.time() + 3600*24))
+    hd.setExpirationTime(int(time.time() + 3600*3))
     
-    body = QueryRequestBody()
+    body = ResolutionRequestBody()
     body.setVals(handle.encode(), [], [])
-    body = body.pack()
-    bodyLen = len(body)
+    bodyPack = body.pack()
+    bodyLen = len(bodyPack)
     # print()
     hd.setBodyLength(bodyLen)
 
     cred = pack("!I", 0) # todo
     credLen = len(cred)
 
-    evp.setMessageLength(bodyLen + message.HEADER_LEN + credLen)
+    evp.setMessageLength(bodyLen 
+        + common.HEADER_LEN 
+        + credLen)
 
     payload = evp.pack()
     payload += hd.pack()
-    payload += body
+    payload += bodyPack
+    payload += cred
 
-    return payload
+    logger.debug(evp)
+    logger.debug(hd)
+    logger.debug(body)
+    logger.debug(payload)
+    # return payload
+
+    # print()
+    # send payload
+    sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock_tcp.connect(serverAddr)
+    sock_tcp.send(payload)
+
+    res = b''
+    while len(tmp := sock_tcp.recv(0x100)) != 0:
+        res += tmp
+
+    # open("res.tmp", "wb").write(res)
+    # res = open("res.tmp", "rb").read()
+    logger.debug(f"reslen : {len(res)}\n")
+    resp = response.Response.parse(res)
+    print(resp)
+
+    return resp
