@@ -147,15 +147,6 @@ class ResolutionRequestBody(object):
         return res
 
 
-def test():
-    body = ResolutionRequestBody()
-    body.setVals(b"handle1234", [1, 2, 3], [u"关山难越".encode('utf8'), b"t2"])
-    print(body)
-    p1 = body.pack()
-
-    body2 = ResolutionRequestBody.parse(p1)
-    print(body2)
-
 def simpleResolutionTest(handle, serverAddr=''):
     assert isinstance(handle, str)
 
@@ -195,13 +186,11 @@ def simpleResolutionTest(handle, serverAddr=''):
     payload += bodyPack
     payload += cred
 
-    logger.debug(evp)
-    logger.debug(hd)
-    logger.debug(body)
-    logger.debug(payload)
-    # return payload
+    # logger.debug(evp)
+    # logger.debug(hd)
+    # logger.debug(body)
+    # logger.debug(payload)
 
-    # print()
     # send payload
     sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock_tcp.connect(serverAddr)
