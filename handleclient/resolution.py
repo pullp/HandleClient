@@ -211,10 +211,10 @@ def simpleResolutionTest(handle, serverAddr=''):
     while len(tmp := sock_tcp.recv(0x100)) != 0:
         res += tmp
 
-    # open("res.tmp", "wb").write(res)
-    # res = open("res.tmp", "rb").read()
+    # open("./traffics/res.tmp", "wb").write(res)
+    # res = open("./traffics/res.tmp", "rb").read()
     logger.debug(f"reslen : {len(res)}\n")
     resp = response.Response.parse(res)
-    print(resp)
+    logger.info(str(resp))
 
     return resp
