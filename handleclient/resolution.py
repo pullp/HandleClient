@@ -3,16 +3,15 @@ import socket
 from struct import pack, unpack 
 import logging
 
-# import message as msg
-import common
-import utils
-import message
-import request
-import response
-import handlevalue
+from handleclient import common
+from handleclient import utils
+from handleclient import message
+from handleclient import request
+from handleclient import response
+from handleclient import handlevalue
 
-from handlevalue import HandleValue
-from message import Envelope, Header, Body, Credential
+from handleclient.handlevalue import HandleValue
+from handleclient.message import Envelope, Header, Body, Credential
 
 logger = logging.getLogger(__name__)
 logger.setLevel(common.LOG_LEVEL)

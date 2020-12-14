@@ -2,8 +2,15 @@ from enum import Enum
 from struct import pack, unpack
 import logging
 
-import common
-import utils
+from handleclient import common
+from handleclient import utils
+# from handleclient import message
+# from handleclient import request
+# from handleclient import response
+# from handleclient import handlevalue
+
+# from handleclient.handlevalue import HandleValue
+# from handleclient.message import Envelope, Header, Body, Credential
 
 
 logger = logging.getLogger(__name__)

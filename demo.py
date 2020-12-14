@@ -1,4 +1,4 @@
-import resolution as rsl
+from handleclient import resolution
 
 rootAddr = ("132.151.1.179", 2641) # ghr
-resp = rsl.simpleResolutionTest("0.NA/10", rootAddr)
+resp = resolution.simpleResolutionTest("0.NA/10", rootAddr)

@@ -1,8 +1,9 @@
 from enum import Enum
 from struct import pack, unpack
 
-import common
-import utils
+from handleclient import common
+from handleclient import utils
+
 
 """
 Handle system client implemention.

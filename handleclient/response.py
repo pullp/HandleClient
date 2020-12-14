@@ -1,13 +1,13 @@
 from struct import pack, unpack 
 import logging
 
-import common
-import utils
-import message
-import handlevalue
+from handleclient import common
+from handleclient import utils
+from handleclient import message
+from handleclient import handlevalue
 
-from message import Envelope, Header, Body, Credential
-from handlevalue import HandleValue
+from handleclient.handlevalue import HandleValue
+from handleclient.message import Envelope, Header, Body, Credential
 
 logger = logging.getLogger(__name__)
 logger.setLevel(common.LOG_LEVEL)
