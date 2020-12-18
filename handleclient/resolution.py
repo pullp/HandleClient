@@ -1,3 +1,4 @@
+
 import time
 import socket
 from struct import pack, unpack 
@@ -15,7 +16,6 @@ from handleclient.message import Envelope, Header, Body, Credential
 
 logger = logging.getLogger(__name__)
 logger.setLevel(common.LOG_LEVEL)
-
 logger.addHandler(common.ch)
 
 """
@@ -57,6 +57,7 @@ The Message Body for any query request is defined as follows:
         values regardless of their data type.
 """
 
+# 如果别的respone结构和这个类似(可以复用), 就把这个类放到response.py中(记得改个名字)
 class ResolutionRequestBody(object):
     def __init__(self):
         self.handle     = b''
@@ -147,8 +148,44 @@ class ResolutionRequestBody(object):
         return res
 
 
+class ResolutionResponseBody():
+    def __init__(self):
+        self.handle = None
+        self.valueList = []
+        self.requestDigest = None
+
+    @classmethod
+    def parse(cls, body):
+        assert isinstance(body, bytes)
+        rrb = ResolutionResponseBody()
+        offset = 0
+        rrb.handle = utils.unpackString(body[offset:])
+        offset += 4 + len(rrb.handle)
+        # logger.debug(f"handle : {rrb.handle}({len(rrb.handle)})")
+        # logger.debug(f"offset : {offset}/{len(body)}")
+        if (valueCnt := utils.u32(body[offset:])) \
+            > common.MAX_HANDLE_VALUES:
+            raise Exception(f"invalid valueCnt : {valueCnt}")
+        offset += 4
+        logger.debug(f"valueCnt: {valueCnt}")
+        for _i in range(valueCnt):
+            valueLen = HandleValue.calcHandleValueSize(body, offset)
+            hv = HandleValue.parse(body[offset:offset+valueLen])
+            # logger.debug(str(hv))
+            offset += valueLen
+            rrb.valueList.append(hv)
+        assert offset == len(body)
+        return rrb
+
+    def __str__(self):
+        res = super().__str__()
+        res += "values:\n"
+        for value in self.valueList:
+            res += "\n" + str(value)
+        return res
+
 def simpleResolutionTest(handle, serverAddr=''):
-    assert isinstance(handle, str)
+    assert isinstance(handle, bytes)
 
     # construct payload
     evp = Envelope()
@@ -158,7 +195,6 @@ def simpleResolutionTest(handle, serverAddr=''):
 
     hd  = Header()
     hd.setOpCode(Header.OC.OC_RESOLUTION.value)
-    hd.setResponseCode(0)
     hd.setOpFlag(Header.OPF.OPF_CT.value 
             | Header.OPF.OPF_REC.value 
             | Header.OPF.OPF_CA.value 
@@ -168,18 +204,16 @@ def simpleResolutionTest(handle, serverAddr=''):
     hd.setExpirationTime(int(time.time() + 3600*3))
     
     body = ResolutionRequestBody()
-    body.setVals(handle.encode(), [], [])
+    body.setVals(handle, [], [])
     bodyPack = body.pack()
     bodyLen = len(bodyPack)
     # print()
     hd.setBodyLength(bodyLen)
 
-    cred = pack("!I", 0) # todo
+    cred = utils.p32(0)
     credLen = len(cred)
 
-    evp.setMessageLength(bodyLen 
-        + common.HEADER_LEN 
-        + credLen)
+    evp.setMessageLength(common.HEADER_LEN + bodyLen + credLen)
 
     payload = evp.pack()
     payload += hd.pack()
@@ -204,6 +238,23 @@ def simpleResolutionTest(handle, serverAddr=''):
     # res = open("./traffics/res.tmp", "rb").read()
     logger.debug(f"reslen : {len(res)}\n")
     resp = response.Response.parse(res)
-    logger.info(str(resp))
+    if (rc := resp.header.responseCode) == Header.RC.RC_SUCCESS:
+        resp.body = ResolutionResponseBody.parse(resp.bodyRaw)
+    elif rc == Header.RC.RC_HANDLE_NOT_FOUND.value \
+        or rc == Header.RC.RC_SERVER_NOT_RESP.value \
+        or rc == Header.RC.RC_SERVER_BUSY \
+        or rc == Header.RC.RC_ACCESS_DENIED:
+        resp.body = response.ErrorResponseBody().parse(resp.bodyRaw)
+    elif rc == Header.RC.RC_SERVICE_REFERRAL:
+        # parse referral
+        logger.warning(f"parse referral type todo")
+        pass
+    elif rc == Header.RC.RC_AUTHEN_NEEDED \
+        and (resp.header.opFlag & Header.OPF.OPF_RD == 1):
+        logger.warning(f"parse auth type todo")
+    else:
+        logger.warning(f"unsupport resolution response")
+        logger.debug(resp.evp)
+        logger.debug(resp.header)
 
     return resp

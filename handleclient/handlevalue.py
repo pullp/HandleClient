@@ -22,17 +22,47 @@ logger.addHandler(common.ch)
 # query new type by 0.TYPE todo
 
 class Reference(object):
-    def __init__(self, handle, index):
+    def __init__(self):
+        self.handle = b''
+        self.index = 0
+
+    def setVals(self, handle, index):
         assert isinstance(handle, bytes)
         assert isinstance(index, int)
 
         self.handle = handle
         self.index = index
     
+    @classmethod
+    def parse(cls, payload):
+        assert isinstance(payload, bytes)
+        ref = Reference()
+        offset = 0
+        ref.handle = utils.unpackString(payload[offset:])
+        offset += 4 + len(ref.handle)
+        ref.index = utils.unpack(payload[offset:])
+        offset += 4
+        return ref
+
+    def pack(self):
+        payload = b''
+        payload += utils.p32(len(self.handle)) + self.handle
+        payload += utils.p32(len(self.index))
+        return payload
+
     def __str__(self):
         res = f"{self.handle.decode()} ({self.index})\n"
         return res
 
+    @staticmethod
+    def calcReferenceSize(payload):
+        assert isinstance(payload, bytes)
+
+        offset = 0
+        handleSize = utils.u32(payload[offset:])
+        offset += 4 + handleSize # handle
+        offset += 4 # index
+        return offset
 
 class HandleValue(object):
     # permission
@@ -41,8 +71,8 @@ class HandleValue(object):
         PUBLIC_READ     = 1 << 1
         ADMIN_WRITE     = 1 << 2
         ADMIN_READ      = 1 << 3
-        PUBLIC_EXECUTE  = 1 << 4
-        ADMIN_EXECUTE   = 1 << 5
+        # PUBLIC_EXECUTE  = 1 << 4
+        # ADMIN_EXECUTE   = 1 << 5
 
     class TTLType(Enum):
         RELA = 0 # relative
@@ -83,11 +113,25 @@ class HandleValue(object):
         # self.value      = None # parse from self.data
 
     def pack(self):
+        self.data = self.packData()
         payload = b''
+        payload += utils.p32(self.index)
+        payload += utils.p32(self.timestamp)
+        payload += utils.p8(self.ttlType)
+        payload += utils.p32(self.ttl)
+        payload += utils.p8(self.permission)
+        payload += utils.p32(len(self.valueType)) + self.valueType
+        payload += utils.p32(len(self.data)) + self.data
+        payload += utils.p32(len(self.refs)) # ref count
+        for ref in self.refs:
+            payload += ref.pack()
         # offset = 
         # valuesCnt =  
         return payload
     
+    def packData(self):
+        return self.data
+
     @classmethod
     def parse(cls, payload):
         # refer to `calcHandleValueSize`
@@ -112,16 +156,15 @@ class HandleValue(object):
         offset += 4 + len(data)
 
         refs = []
-        refCnt          = utils.u32(payload[offset:])
+        refCnt = utils.u32(payload[offset:])
         offset += 4
         for _i in range(0, refCnt):
-            handle = utils.unpackString(payload[offset:])
-            offset += 4 + len(handle)
-            index = utils.u32(payload[offset:])
-            offset += 4
-            ref = Reference(handle, index)
+            refLen = Reference.calcReferenceSize(payload[offset:])
+            ref = Reference.parse(payload[offset:])
+            offset += refLen
             refs.append(ref)
-
+        assert offset == len(payload)
+        
         valueType = valueType.upper()
         logger.debug(f"value type : {valueType}")
 
@@ -160,24 +203,25 @@ class HandleValue(object):
         # hv.timestamp = timestamp
         # hv.permission = permission
         # hv.refs = refs
-        hv._setBasicVals(valueType=valueType, index=index, data=data,
+        logger.debug(f"before setBasicVals {valueType} : {index} {permission:#x}")
+        hv.setBasicVals(valueType=valueType, index=index, data=data,
             ttlType=ttlType, ttl=ttl, permission=permission,
             timestamp=timestamp, refs=refs)
-        hv._parseData(data)
+        hv.parseData(data)
         return hv
     
-    def _setBasicVals(self, *args, **kwargs):
+    def setBasicVals(self, *args, **kwargs):
         self.setVals(*args, **kwargs)
     
-    def _parseData(self, data):
+    def parseData(self, data):
         return
 
     def __str__(self):
         res = "HandleValue:\n"
         res += f" type : {self.valueType.decode()}\n"
         res += f" index : {self.index}\n"
-        res += f" TTL   : {self.ttl}({utils.printableFlags(HandleValue.TTLType, self.ttlType)})\n"
-        res += f" permission : {utils.printableFlags(HandleValue.PERM, self.permission)}\n"
+        res += f" TTL   : {self.ttl}({utils.printableCode(HandleValue.TTLType, self.ttlType)})\n"
+        res += f" permission : {utils.printableFlags(HandleValue.PERM, self.permission)} ({self.permission:#x})\n"
         res += f" timestamp : {utils.formatTimestamp(self.timestamp)}({self.timestamp})\n"
         res += f" references:\n"
         for ref in self.refs:
@@ -223,13 +267,14 @@ class HandleValue(object):
 
 class ServiceInterface(object):
     class ServiceType(Enum):
-        RESL = 1 # handle resolution
-        ADMIN = 2 # handle administration
+        ADMIN = 1 # handle administration
+        QUERY = 2 # handle resolution
+        BOTH = 3
 
     class Protocol(Enum):
+        UDP = 0
         TCP = 1
-        UDP = 2
-        HTTP = 4
+        HTTP = 2
     
     def __init__(self):
         self.serviceType = None
@@ -247,9 +292,11 @@ class ServiceInterface(object):
         assert isinstance(payload, bytes)
         logger.warning("todo")
 
+    def __str__(self):
+        res = f"interface : {utils.printableCode(ServiceInterface.ServiceType, self.serviceType)} {utils.printableCode(ServiceInterface.Protocol, self.protocol)} {self.portNumber:d}\n"
+        return res
 
 class ServerRecord(object):
-
     def __init__(self):
         self.serverID = 0
         self.address = b'' # ipv6 address
@@ -260,6 +307,7 @@ class ServerRecord(object):
                 publicKey, interfaces):
         assert isinstance(serverID, int)
         assert isinstance(address, bytes)
+        assert len(address) == common.IPV6_SIZE_IN_BYTES
         assert isinstance(publicKey, bytes)
         assert isinstance(interfaces, list)
         assert all(isinstance(item, ServiceInterface) \
@@ -272,6 +320,17 @@ class ServerRecord(object):
     @classmethod
     def parse(cls, payload):
         assert isinstance(payload, bytes)
+    
+    def __str__(self):
+        res = "ServerRecord:\n"
+        res += f" server id : {self.serverID}\n"
+        res += f" address : {utils.formatIpAddress(self.address)}\n"
+        logger.warning("publicKey todo")
+        res += f" public key : todo\n"
+        res += " interfaces:\n"
+        for intf in self.interfaces:
+            res += "  " + str(intf)
+        return res
 
 
 class HS_SITE(HandleValue):
@@ -350,7 +409,7 @@ class HS_SITE(HandleValue):
         IS_PRIMARY = 0x80
         MULTI_PRIMARY = 0x40
     
-    def setVals(self, version, protocolVersion, serialNumber,
+    def setDataVals(self, version, protocolVersion, serialNumber,
                 primaryMask, hashOption, hashFilter, attributeList,
                 servers):
         assert isinstance(version, int)
@@ -375,10 +434,10 @@ class HS_SITE(HandleValue):
         self.attributeList = attributeList
         self.servers = servers
     
-    def _setBasicVals(self, *args, **kwargs):
+    def setBasicVals(self, *args, **kwargs):
         super().setVals(*args, **kwargs)
     
-    def _parseData(self, data):
+    def parseData(self, data):
         assert isinstance(data, bytes)
         logger.debug("start parsing data for HS_SITE")
         offset = 0
@@ -426,7 +485,7 @@ class HS_SITE(HandleValue):
             offset += 4 + len(publicKey)
 
             intfCnt = utils.u32(data[offset:])
-            offset += 32
+            offset += 4
 
             intfs = []
             for _i in range(intfCnt):
@@ -451,6 +510,11 @@ class HS_SITE(HandleValue):
         logger.debug(f"{offset}/{len(data)}")
         logger.debug("end parsing data for HS_SITE")
         assert offset == len(data)
+
+    def packData(self):
+        payload = b''
+        logger.warning("HS_SITE packData unimplemented")
+        return payload
 
     def __str__(self):
         res = super().__str__()
@@ -488,20 +552,20 @@ class HS_ADMIN(HandleValue):
 
     def __init__(self):
         super().__init__()
-        self.permission = 0
+        self.adminPermission = 0
         self.adminID = b''
         self.adminIndex = b''
     
-    def setVals(self,):
+    def setDataVals(self,):
         pass
     
-    def _setBasicVals(self, *args, **kwargs):
+    def setBasicVals(self, *args, **kwargs):
         super().setVals(*args, **kwargs)
     
-    def _parseData(self, data):
+    def parseData(self, data):
         assert isinstance(data, bytes)
         offset = 0
-        self.permission = utils.u16(data[offset:])
+        self.adminPermission = utils.u16(data[offset:])
         offset += 2
         
         self.adminID = utils.unpackString(data[offset:])
@@ -510,12 +574,17 @@ class HS_ADMIN(HandleValue):
         self.adminIndex = utils.u32(data[offset:])
         offset += 4
 
-        assert offset == len(data) # todo legacyByteLength
+        assert (offset == len(data) or offset+2 == len(data)) # todo legacyByteLength
+
+    def packData(self):
+        payload = b''
+        logger.warning("HS_ADMIN packData unimplemented")
+        return payload
 
     def __str__(self):
         res = super().__str__()
         res += "data:\n"
-        res += f"  permission : {utils.printableFlags(HS_ADMIN.PERM, self.permission)}\n"
+        res += f"  adminPermission : {utils.printableFlags(HS_ADMIN.PERM, self.adminPermission)}\n"
         res += f"  admin ref : {self.adminID.decode()} ({self.adminIndex})\n"
         return res
 
@@ -525,16 +594,23 @@ class HS_STRING(HandleValue):
     """
     def __init__(self):
         super().__init__()
+        self.info = b''
+
+    def setDataVals(self, info):
+        self.info = info
     
-    def setVals(self,):
-        pass
-    
-    def _setBasicVals(self, *args, **kwargs):
+    def setBasicVals(self, *args, **kwargs):
         super().setVals(*args, **kwargs)
     
-    def _parseData(self, data):
+    def parseData(self, data):
         assert isinstance(data, bytes)
         self.info = data.decode(common.TEXT_ENCODING)
+
+    def packData(self):
+        payload = b''
+        payload = self.info.encode(common.TEXT_ENCODING)
+        return payload
+
 
     def __str__(self):
         res = super().__str__()
@@ -546,10 +622,14 @@ class HS_PUBKEY(HandleValue):
     def __init__(self):
         super().__init__()
     
-    def _setBasicVals(self, *args, **kwargs):
+    def setVals(self):
+        logger.warning("unimplemented")
+
+    def setBasicVals(self, *args, **kwargs):
         super().setVals(*args, **kwargs)
+        logger.warning("unimplemented")
     
-    def _parseData(self, data):
+    def parseData(self, data):
         assert isinstance(data, bytes)
         offset = 0
 
@@ -559,8 +639,12 @@ class HS_PUBKEY(HandleValue):
         # unused currently
         self.flags = utils.u16(data[offset:])
         offset += 2
+        logger.warning("unimplemented")
 
         # todo
+    
+    def packData(self):
+        logger.warning("unimplemented")
 
     def __str__(self):
         res = super().__str__()
@@ -573,13 +657,13 @@ class HS_VLIST(HandleValue):
     def __init__(self):
         super().__init__()
     
-    def setVals(self):
-        pass
+    def setDataVals(self):
+        logger.warning("unimplemented")
     
-    def _setBasicVals(self, *args, **kwargs):
+    def setBasicVals(self, *args, **kwargs):
         super().setVals(*args, **kwargs)
     
-    def _parseData(self, data):
+    def parseData(self, data):
         assert isinstance(data, bytes)
         offset = 0
 
@@ -598,6 +682,9 @@ class HS_VLIST(HandleValue):
         self.refs = refs
         assert offset == len(data)
 
+    def packData(self):
+        logger.warning("unimplemented")
+
     def __str__(self):
         res = super().__str__()
         res += "data:\n"
@@ -610,40 +697,43 @@ class HS_CERT(HandleValue):
     def __init__(self):
         super().__init__()
     
-    def setVals(self,):
-        pass
+    def setDataVals(self,):
+        logger.warning("unimplemented")
     
-    def _setBasicVals(self, *args, **kwargs):
+    def setBasicVals(self, *args, **kwargs):
         super().setVals(*args, **kwargs)
     
-    def _parseData(self, data):
+    def parseData(self, data):
         assert isinstance(data, bytes)
         # offset = 0
-
+        logger.warning("unimplemented")
         return
+
+    def packData(self):
+        logger.warning("unimplemented")
 
     def __str__(self):
         res = super().__str__()
 
         return res
 
-class HS_SIGNATURE(HandleValue):
-    def __init__(self):
-        super().__init__()
+# class HS_SIGNATURE(HandleValue):
+#     def __init__(self):
+#         super().__init__()
     
-    def setVals(self,):
-        pass
+#     def setDataVals(self,):
+#         pass
     
-    def _setBasicVals(self, *args, **kwargs):
-        super().setVals(*args, **kwargs)
+#     def setBasicVals(self, *args, **kwargs):
+#         super().setVals(*args, **kwargs)
     
-    def _parseData(self, data):
-        assert isinstance(data, bytes)
-        # offset = 0
+#     def parseData(self, data):
+#         assert isinstance(data, bytes)
+#         # offset = 0
 
-        return
+#         return
 
-    def __str__(self):
-        res = super().__str__()
+#     def __str__(self):
+#         res = super().__str__()
 
-        return res
+#         return res

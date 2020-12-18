@@ -1,9 +1,13 @@
 from enum import Enum
 from struct import pack, unpack
+import logging
 
 from handleclient import common
 from handleclient import utils
 
+logger = logging.getLogger(__name__)
+logger.setLevel(common.LOG_LEVEL)
+logger.addHandler(common.ch)
 
 """
 Handle system client implemention.
@@ -95,7 +99,7 @@ class Envelope(object):
         # The <MessageFlag> consists of two octets defined as follows:
         self.messageFlag    = 0
         # four-byte unsigned integer
-        self.sessionId      = 0
+        self.sessionID      = 0
         # four-byte unsigned integer
         self.requestId      = 0
         # four-byte unsigned integer
@@ -103,11 +107,11 @@ class Envelope(object):
         # four-byte unsigned integer
         self.messageLength  = 0
 
-    def setVals(self, messageFlag, sessionId, requestId, sequenceNumber, messageLength):
+    def setVals(self, messageFlag, sessionID, requestId, sequenceNumber, messageLength):
         self.majorVersion   = 2
         self.minorVersion   = 1
         self.messageFlag    = messageFlag
-        self.sessionId      = sessionId
+        self.sessionID      = sessionID
         self.requestId      = requestId
         self.sequenceNumber = sequenceNumber
         self.messageLength  = messageLength
@@ -120,9 +124,9 @@ class Envelope(object):
         assert isinstance(messageFlag, int)
         self.messageFlag = messageFlag
     
-    def setSessionId(self, sessionId):
-        assert isinstance(sessionId, int)
-        self.sessionId = sessionId
+    def setSessionId(self, sessionID):
+        assert isinstance(sessionID, int)
+        self.sessionID = sessionID
     
     def setRequestId(self, requestId):
         assert isinstance(requestId, int)
@@ -143,7 +147,7 @@ class Envelope(object):
             self.majorVersion,
             self.minorVersion,
             self.messageFlag ,
-            self.sessionId,
+            self.sessionID,
             self.requestId,
             self.sequenceNumber,
             self.messageLength
@@ -166,7 +170,7 @@ class Envelope(object):
         index += 1
         evp.messageFlag    = vals[index]
         index += 1
-        evp.sessionId      = vals[index]
+        evp.sessionID      = vals[index]
         index += 1
         evp.requestId      = vals[index]
         index += 1
@@ -182,7 +186,7 @@ class Envelope(object):
             "majorVersion"  : self.majorVersion,
             "minorVersion"  : self.minorVersion,
             "messageFlag "  : self.messageFlag ,
-            "sessionId"     : self.sessionId,
+            "sessionID"     : self.sessionID,
             "requestId"     : self.requestId,
             "sequenceNumber": self.sequenceNumber,
             "messageLength" : self.messageLength,
@@ -192,7 +196,7 @@ class Envelope(object):
         res = "Envelope:\n"
         res += f"  version      : {self.majorVersion}.{self.minorVersion}\n"
         res += f"  mesage flag  : {utils.printableFlags(Envelope.MF, self.messageFlag)} ({self.messageFlag:#x})\n"
-        res += f"  session id   : {self.sessionId:#x}\n"
+        res += f"  session id   : {self.sessionID:#x}\n"
         res += f"  request id   : {self.requestId:#x}\n"
         res += f"  sequence no  : {self.sequenceNumber:#x}\n"
         res += f"  message len  : {self.messageLength:#x}\n"
@@ -263,7 +267,7 @@ class Header(object):
          RC_EXPIRED_SITE_INFO       = 300 #  SITE_INFO out of date
          RC_SERVER_NOT_RESP         = 301 #  Server not responsible
          RC_SERVICE_REFERRAL        = 302 #  Server referral
-         RC_NA_DELEGATE             = 303 #  Naming authority delegation takes place.
+         RC_PREFIX_REFERRAL             = 303 #  // formerly RC_NA_DELEGATE Naming authority delegation takes place.
          RC_NOT_AUTHORIZED          = 400 #  Not authorized/permitted
          RC_ACCESS_DENIED           = 401 #  No access to data
          RC_AUTHEN_NEEDED           = 402 #  Authentication required
@@ -424,3 +428,50 @@ class Credential(object):
 
     def __str__(self):
         return ""
+
+class RequestDigest(object):
+    class DAI(Enum):
+        """DigestAlgorithmIdentifier
+        """
+        MD5 = 1
+        SHA1 = 2
+        SHA256 = 3
+        HMAC_SHA1 = 0x12
+        HMAC_SHA256 = 0x13
+        PBKDF2_HMAC_SHA1 = 0x22
+
+    def __init__(self):
+        self.dai = 0
+        self.digest = b''
+    
+    def pack(self):
+        pass
+
+    @classmethod
+    def parse(cls, payload):
+        assert isinstance(payload, bytes)
+        rd = RequestDigest()
+        offset = 0
+        rd.dai = utils.u8(payload[offset:])
+        offset += 1
+        if rd.dai == RequestDigest.DAI.MD5.value:
+            rd.digest = payload[offset:offset+common.MD5_DIGEST_SIZE]
+            offset += common.MD5_DIGEST_SIZE
+        elif rd.dai == RequestDigest.DAI.SHA1.value:
+            rd.digest = payload[offset:offset+common.SHA1_DIGEST_SIZE]
+            offset += common.SHA1_DIGEST_SIZE
+        elif rd.dai == RequestDigest.DAI.SHA256.value:
+            rd.digest = payload[offset:offset+common.SHA256_DIGEST_SIZE]
+        else:
+            logger.critical(f"unimplemented digest parse : {rd.dai:#x}")
+        return rd
+    
+    def __len__(self):
+        l = len(self.digest)
+        if l == 0:
+            return 0
+        else:
+            return l + 1
+    
+    def __str__(self):
+        return f"{utils.printableCode(RequestDigest.DAI, self.dai)} : {self.digest.hex()}"

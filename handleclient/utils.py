@@ -1,3 +1,4 @@
+
 from enum import Enum
 import logging
 from datetime import datetime
@@ -22,7 +23,9 @@ def u64(payload):
     assert isinstance(payload, bytes)
     return unpack("!Q", payload[:8])[0]
 
-def unpackString(payload):
+def unpackString(payload: bytes) -> bytes:
+    """unpack utf8 byte array from payload
+    """
     assert isinstance(payload, bytes)
     strLen = u32(payload)
     return payload[4:4+strLen]
@@ -72,6 +75,21 @@ def formatTimestamp(timestamp):
             .utcfromtimestamp(timestamp)\
             .strftime('%Y-%m-%d %H:%M:%S')
 
+def formatIpAddress(addr: bytes) -> str:
+    assert isinstance(addr, bytes)
+
+    if addr.startswith(b'\x00'*(common.IPV6_SIZE_IN_BYTES - common.IPV4_SIZE_IN_BYTES)):
+        # ipv4
+        res = f"{addr[-4]:d}.{addr[-3]:d}.{addr[-2]:d}.{addr[-1]:d}"
+    else:
+        addrHex = addr.hex()
+        res = ""
+        for i in range(0, common.IPV6_SIZE_IN_BYTES, 4):
+            res += addrHex[i: i+4] + ":"
+        res = res[:-1]
+    return res
+
+    
 
 ################################################################
 # below codes are just for fun XD
