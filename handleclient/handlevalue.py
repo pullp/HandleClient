@@ -15,7 +15,6 @@ from handleclient import utils
 
 logger = logging.getLogger(__name__)
 logger.setLevel(common.LOG_LEVEL)
-
 logger.addHandler(common.ch)
 
 # supported (predefined) handle value types
@@ -38,7 +37,7 @@ class Reference(object):
         assert isinstance(payload, bytes)
         ref = Reference()
         offset = 0
-        ref.handle = utils.unpackString(payload[offset:])
+        ref.handle = utils.unpackByteArray(payload[offset:])
         offset += 4 + len(ref.handle)
         ref.index = utils.unpack(payload[offset:])
         offset += 4
@@ -149,10 +148,10 @@ class HandleValue(object):
         permission  = utils.u8(payload[offset:])
         offset += 1
 
-        valueType  = utils.unpackString(payload[offset:])
+        valueType  = utils.unpackByteArray(payload[offset:])
         offset += 4 + len(valueType)
 
-        data  = utils.unpackString(payload[offset:])
+        data  = utils.unpackByteArray(payload[offset:])
         offset += 4 + len(data)
 
         refs = []
@@ -466,10 +465,10 @@ class HS_SITE(HandleValue):
         offset += 4
 
         for _i in range(attributeCnt):
-            name = utils.unpackString(data[offset:])
+            name = utils.unpackByteArray(data[offset:])
             offset += 4 + len(name)
 
-            value = utils.unpackString(data[offset:])
+            value = utils.unpackByteArray(data[offset:])
             offset += 4 + len(value)
             self.attributeList.append((name, value))
         
@@ -481,7 +480,7 @@ class HS_SITE(HandleValue):
             offset += 4
             address = data[offset:offset + common.IP_ADDRESS_LENGTH]
             offset += common.IP_ADDRESS_LENGTH
-            publicKey = utils.unpackString(data[offset:])
+            publicKey = utils.unpackByteArray(data[offset:])
             offset += 4 + len(publicKey)
 
             intfCnt = utils.u32(data[offset:])
@@ -568,7 +567,7 @@ class HS_ADMIN(HandleValue):
         self.adminPermission = utils.u16(data[offset:])
         offset += 2
         
-        self.adminID = utils.unpackString(data[offset:])
+        self.adminID = utils.unpackByteArray(data[offset:])
         offset += 4 + len(self.adminID)
 
         self.adminIndex = utils.u32(data[offset:])
@@ -633,7 +632,7 @@ class HS_PUBKEY(HandleValue):
         assert isinstance(data, bytes)
         offset = 0
 
-        self.keyType = utils.unpackString(data[offset:])
+        self.keyType = utils.unpackByteArray(data[offset:])
         offset += 4 + len(self.keyType)
 
         # unused currently
@@ -673,7 +672,7 @@ class HS_VLIST(HandleValue):
         refs = []
 
         for _i in range(refCnt):
-            handle = utils.unpackString(data[offset:])
+            handle = utils.unpackByteArray(data[offset:])
             offset += 4 + len(handle)
             index = utils.u32(data[offset:])
             offset += 4

@@ -13,7 +13,7 @@ from handleclient import handlevalue
 from handleclient.handlevalue import HandleValue
 from handleclient.message import Envelope, Header, Body, Credential
 
-from handleclient.auth import ChanllengeBody
+from handleclient.auth import ChallengeBody
 
 logger = logging.getLogger(__name__)
 logger.setLevel(common.LOG_LEVEL)
@@ -54,7 +54,6 @@ def simpleAddValueTest(handle, valueList, serverAddr):
     assert isinstance(handle, bytes)
     # construct payload
     evp = Envelope()
-    evp.setVersion(2, 10)
     evp.setMessageFlag(0x020b)
     evp.setRequestId(0x1236)
 
@@ -84,7 +83,7 @@ def simpleAddValueTest(handle, valueList, serverAddr):
     payload += hd.pack()
     payload += bodyPack
     payload += cred
-
+    logger.debug(f"body hash : {utils.doDigest(common.HASH_CODE.SHA256.value, [hd.pack(), bodyPack]).hex()}")
     # send payload
     sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock_tcp.connect(serverAddr)
@@ -105,7 +104,7 @@ def simpleAddValueTest(handle, valueList, serverAddr):
     elif rc == Header.RC.RC_AUTHEN_NEEDED.value:
         sessionID = resp.evp.sessionID
         logger.debug(f"session id : {sessionID}")
-        resp.body = ChanllengeBody.parse(resp.bodyRaw)
+        resp.body = ChallengeBody.parse(resp.bodyRaw)
     else:
         logger.warning(f"unimplemented response parser : {rc:#x}")
     # logger.info(str(resp))

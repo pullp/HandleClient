@@ -159,7 +159,7 @@ class ResolutionResponseBody():
         assert isinstance(body, bytes)
         rrb = ResolutionResponseBody()
         offset = 0
-        rrb.handle = utils.unpackString(body[offset:])
+        rrb.handle = utils.unpackByteArray(body[offset:])
         offset += 4 + len(rrb.handle)
         # logger.debug(f"handle : {rrb.handle}({len(rrb.handle)})")
         # logger.debug(f"offset : {offset}/{len(body)}")
@@ -189,7 +189,6 @@ def simpleResolutionTest(handle, serverAddr=''):
 
     # construct payload
     evp = Envelope()
-    evp.setVersion(2, 10)
     evp.setMessageFlag(0x020b)
     evp.setRequestId(0x1235)
 

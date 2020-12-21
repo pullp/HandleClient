@@ -15,6 +15,21 @@ Handle protocol (version 2.1)
 rfc: https://tools.ietf.org/html/rfc3652
 """
 
+class Message(object):
+    def __init__(self, evp, hd, body, cred):
+        assert isinstance(evp, Envelope)
+        assert isinstance(hd, Header)
+        assert isinstance(body, body)
+        # assert isinstance(cred, Credential) # todo
+        self.evp = evp
+        self.hd = hd
+        self.body = body
+        self.cred = cred
+    
+    def digest(self, hashType):
+        pass
+
+
 """Cautions
 1. The order of transmission of data packets follows the network byte order (also called the Big-Endian [11]).
 
@@ -92,10 +107,10 @@ class Envelope(object):
         # MF_USED = MF_CP | MF_EC | MF_TC
     
     def __init__(self):
-        # one-byte unsigned integer.
-        self.majorVersion   = 0
-        # one-byte unsigned integer.
-        self.minorVersion   = 0
+        self.majorVersion   = common.COMPATIBILITY_MAJOR_VERSION
+        self.minorVersion   = common.COMPATIBILITY_MINOR_VERSION
+        self.suggestMajorVersion = common.MAJOR_VERSION
+        self.suggestMinorVersion = common.MINOR_VERSION
         # The <MessageFlag> consists of two octets defined as follows:
         self.messageFlag    = 0
         # four-byte unsigned integer
@@ -108,17 +123,17 @@ class Envelope(object):
         self.messageLength  = 0
 
     def setVals(self, messageFlag, sessionID, requestId, sequenceNumber, messageLength):
-        self.majorVersion   = 2
-        self.minorVersion   = 1
         self.messageFlag    = messageFlag
         self.sessionID      = sessionID
         self.requestId      = requestId
         self.sequenceNumber = sequenceNumber
         self.messageLength  = messageLength
     
-    def setVersion(self, majorVersion, minorVersion):
+    def setVersion(self, majorVersion, minorVersion, suggestMajorVersion, suggestMinorVersion):
         self.majorVersion = majorVersion
         self.minorVersion = minorVersion
+        self.suggestMajorVersion = suggestMajorVersion
+        self.suggestMinorVersion = suggestMinorVersion
     
     def setMessageFlag(self, messageFlag):
         assert isinstance(messageFlag, int)
@@ -146,7 +161,7 @@ class Envelope(object):
         payload += pack("!BBHIIII", 
             self.majorVersion,
             self.minorVersion,
-            self.messageFlag ,
+            self.messageFlag | (((self.suggestMajorVersion)<<8) | self.suggestMinorVersion),
             self.sessionID,
             self.requestId,
             self.sequenceNumber,
@@ -168,8 +183,12 @@ class Envelope(object):
         index += 1
         evp.minorVersion   = vals[index]
         index += 1
-        evp.messageFlag    = vals[index]
+        tmp    = vals[index]
         index += 1
+        evp.messageFlag = tmp & common.MESSAGE_FLAG_MASK
+        tmp &= ~common.MESSAGE_FLAG_MASK
+        evp.suggestMajorVersion = tmp >> 8
+        evp.suggestMinorVersion = tmp & 0xff
         evp.sessionID      = vals[index]
         index += 1
         evp.requestId      = vals[index]
@@ -194,7 +213,7 @@ class Envelope(object):
 
     def __str__(self):
         res = "Envelope:\n"
-        res += f"  version      : {self.majorVersion}.{self.minorVersion}\n"
+        res += f"  version(suggest)      : {self.majorVersion}.{self.minorVersion}({self.suggestMajorVersion}.{self.suggestMinorVersion})\n"
         res += f"  mesage flag  : {utils.printableFlags(Envelope.MF, self.messageFlag)} ({self.messageFlag:#x})\n"
         res += f"  session id   : {self.sessionID:#x}\n"
         res += f"  request id   : {self.requestId:#x}\n"
@@ -430,15 +449,6 @@ class Credential(object):
         return ""
 
 class RequestDigest(object):
-    class DAI(Enum):
-        """DigestAlgorithmIdentifier
-        """
-        MD5 = 1
-        SHA1 = 2
-        SHA256 = 3
-        HMAC_SHA1 = 0x12
-        HMAC_SHA256 = 0x13
-        PBKDF2_HMAC_SHA1 = 0x22
 
     def __init__(self):
         self.dai = 0
@@ -454,13 +464,13 @@ class RequestDigest(object):
         offset = 0
         rd.dai = utils.u8(payload[offset:])
         offset += 1
-        if rd.dai == RequestDigest.DAI.MD5.value:
+        if rd.dai == common.HASH_CODE.MD5.value:
             rd.digest = payload[offset:offset+common.MD5_DIGEST_SIZE]
             offset += common.MD5_DIGEST_SIZE
-        elif rd.dai == RequestDigest.DAI.SHA1.value:
+        elif rd.dai == common.HASH_CODE.SHA1.value:
             rd.digest = payload[offset:offset+common.SHA1_DIGEST_SIZE]
             offset += common.SHA1_DIGEST_SIZE
-        elif rd.dai == RequestDigest.DAI.SHA256.value:
+        elif rd.dai == common.HASH_CODE.SHA256.value:
             rd.digest = payload[offset:offset+common.SHA256_DIGEST_SIZE]
         else:
             logger.critical(f"unimplemented digest parse : {rd.dai:#x}")
@@ -474,4 +484,4 @@ class RequestDigest(object):
             return l + 1
     
     def __str__(self):
-        return f"{utils.printableCode(RequestDigest.DAI, self.dai)} : {self.digest.hex()}"
+        return f"{utils.printableCode(common.HASH_CODE, self.dai)} : {self.digest.hex()}"

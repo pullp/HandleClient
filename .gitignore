@@ -5,3 +5,4 @@ rfcs/*
 traffics/*
 
 tmp.py
+*.bin

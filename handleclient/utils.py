@@ -1,10 +1,16 @@
 
-from enum import Enum
 import logging
+import hashlib
+
+from enum import Enum
 from datetime import datetime
 from struct import pack, unpack
 
 from handleclient import common
+
+logger = logging.getLogger(__name__)
+logger.setLevel(common.LOG_LEVEL)
+logger.addHandler(common.ch)
 
 # unpack int from bytes
 def u8(payload):
@@ -23,7 +29,7 @@ def u64(payload):
     assert isinstance(payload, bytes)
     return unpack("!Q", payload[:8])[0]
 
-def unpackString(payload: bytes) -> bytes:
+def unpackByteArray(payload: bytes) -> bytes:
     """unpack utf8 byte array from payload
     """
     assert isinstance(payload, bytes)
@@ -88,6 +94,36 @@ def formatIpAddress(addr: bytes) -> str:
             res += addrHex[i: i+4] + ":"
         res = res[:-1]
     return res
+
+
+def doDigest(hashType, datas):
+    assert isinstance(hashType, int)
+    assert isinstance(datas, list)
+    assert all(isinstance(item, bytes) for item in datas)
+    if hashType == common.HASH_CODE.OLD_FORMAT.value:
+        logger.critical("doDigest for OLD_FORMAT unimpl")
+        return
+    elif hashType == common.HASH_CODE.MD5.value:
+        m = hashlib.md5()
+    elif hashType == common.HASH_CODE.SHA1.value:
+        m = hashlib.sha1()
+    elif hashType == common.HASH_CODE.SHA256.value:
+        m = hashlib.sha256()
+    elif hashType == common.HASH_CODE.HMAC_SHA1.value:
+        logger.critical("doDigest for HMAC_SHA1")
+        return
+    elif hashType == common.HASH_CODE.HMAC_SHA256.value:
+        logger.critical("doDigest for HMAC_SHA256")
+        return
+    else:
+        logger.critical(f"un implement digest type {hashType:#x}")
+        return
+    
+    for data in datas:
+        m.update(data)
+    
+    return m.digest()
+
 
     
 
