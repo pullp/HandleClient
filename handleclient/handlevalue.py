@@ -10,7 +10,7 @@ from handleclient import utils
 # from handleclient import handlevalue
 
 # from handleclient.handlevalue import HandleValue
-# from handleclient.message import Envelope, Header, Body, Credential
+# from handleclient.message import Message, Envelope, Header,Credential
 
 
 logger = logging.getLogger(__name__)

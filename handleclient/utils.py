@@ -53,6 +53,13 @@ def p64(val):
     assert isinstance(val, int)
     return pack("!Q", val)
 
+def packByteArray(arr: bytes) -> bytes:
+    assert isinstance(arr, bytes)
+    payload = b''
+    payload += p32(len(arr))
+    payload += arr
+    return payload
+
 def printableFlags(flagsEnum, flag) -> str:
     """
     """

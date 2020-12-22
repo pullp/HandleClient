@@ -12,7 +12,7 @@ from handleclient import response
 from handleclient import handlevalue
 
 from handleclient.handlevalue import HandleValue
-from handleclient.message import Envelope, Header, Body, Credential
+from handleclient.message import Message, Envelope, Header,Credential
 
 logger = logging.getLogger(__name__)
 logger.setLevel(common.LOG_LEVEL)
@@ -236,7 +236,7 @@ def simpleResolutionTest(handle, serverAddr=''):
     # open("./traffics/res.tmp", "wb").write(res)
     # res = open("./traffics/res.tmp", "rb").read()
     logger.debug(f"reslen : {len(res)}\n")
-    resp = response.Response.parse(res)
+    resp = Message.parse(res)
     if (rc := resp.header.responseCode) == Header.RC.RC_SUCCESS:
         resp.body = ResolutionResponseBody.parse(resp.bodyRaw)
     elif rc == Header.RC.RC_HANDLE_NOT_FOUND.value \

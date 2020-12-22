@@ -8,67 +8,67 @@ from handleclient import message
 from handleclient import handlevalue
 
 from handleclient.handlevalue import HandleValue
-from handleclient.message import Envelope, Header, Body, Credential
+from handleclient.message import Message, Envelope, Header,Credential
 
 logger = logging.getLogger(__name__)
 logger.setLevel(common.LOG_LEVEL)
 logger.addHandler(common.ch)
 
-class Response(object):
-    def __init__(self):
-        self.evp = None
-        self.header = None
-        self.bodyRaw = None
-        self.cred = None
-        self.body = "unparsed"
-        self.errMsg = ""
+# class Response(object):
+#     def __init__(self):
+#         self.evp = None
+#         self.header = None
+#         self.bodyRaw = None
+#         self.cred = None
+#         self.body = "unparsed"
+#         self.errMsg = ""
 
-    def  setVals(self, evp, header, bodyRaw, cred):
-        assert isinstance(evp, Envelope)
-        assert isinstance(header, Header)
-        assert isinstance(bodyRaw, bytes)
-        assert isinstance(cred, Credential)
+#     def setVals(self, evp, header, bodyRaw, cred):
+#         assert isinstance(evp, Envelope)
+#         assert isinstance(header, Header)
+#         assert isinstance(bodyRaw, bytes)
+#         assert isinstance(cred, Credential)
 
-        self.evp = evp
-        self.header = header
-        self.bodyRaw = bodyRaw
-        self.cred = cred
+#         self.evp = evp
+#         self.header = header
+#         self.bodyRaw = bodyRaw
+#         self.cred = cred
 
-    @classmethod
-    def parse(cls, payload):
-        assert isinstance(payload, bytes)
-        assert common.MIN_MESSAGE_SIZE <= len(payload)
+#     @classmethod
+#     def parse(cls, payload):
+#         assert isinstance(payload, bytes)
+#         assert common.MIN_MESSAGE_SIZE <= len(payload)
 
-        resp = Response()
-        offset = 0
-        resp.evp = Envelope.parse(payload[:common.ENVELOPE_LEN])
-        offset += common.ENVELOPE_LEN
+#         resp = Response()
+#         offset = 0
+#         resp.evp = Envelope.parse(payload[:common.ENVELOPE_LEN])
+#         offset += common.ENVELOPE_LEN
         
-        resp.header = Header.parse(payload[offset:offset+common.HEADER_LEN])
-        offset += common.HEADER_LEN
+#         resp.header = Header.parse(payload[offset:offset+common.HEADER_LEN])
+#         offset += common.HEADER_LEN
 
-        bodyLength = resp.header.bodyLength
-        resp.bodyRaw = payload[offset:offset+bodyLength]
-        offset += bodyLength
+#         bodyLength = resp.header.bodyLength
+#         resp.bodyRaw = payload[offset:offset+bodyLength]
+#         offset += bodyLength
 
-        credLength = utils.u32(payload[offset:])
-        offset  += 4
-        resp.cred = Credential.parse(payload[offset:offset+credLength])
-        offset += credLength
-        assert offset == len(payload)
-        return resp
+#         credLength = utils.u32(payload[offset:])
+#         offset  += 4
+#         resp.cred = Credential.parse(payload[offset:offset+credLength])
+#         offset += credLength
+#         assert offset == len(payload)
+#         return resp
     
-    def isSuccess(self):
-        return self.header.responseCode == Header.RC.RC_SUCCESS.value
+#     def isSuccess(self):
+#         return self.header.responseCode == Header.RC.RC_SUCCESS.value
 
-    def __str__(self):
-        res = ""
-        res += "Response:\n"
-        res += str(self.evp)
-        res += str(self.header)
-        res += str(self.body)
-        res += str(self.cred)
-        return res
+#     def __str__(self):
+#         res = ""
+#         res += "Response:\n"
+#         res += str(self.evp)
+#         res += str(self.header)
+#         res += str(self.body)
+#         res += str(self.cred)
+#         return res
 
 
 class ErrorResponseBody():

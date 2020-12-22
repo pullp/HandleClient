@@ -16,19 +16,77 @@ rfc: https://tools.ietf.org/html/rfc3652
 """
 
 class Message(object):
-    def __init__(self, evp, hd, body, cred):
+    def __init__(self):
+        self.evp = Envelope()
+        self.header = Header()
+        self.bodyRaw = b''
+        self.cred = Credential()
+        self.body = "unparsed"
+
+    def setVals(self, evp, header, bodyRaw, cred):
         assert isinstance(evp, Envelope)
-        assert isinstance(hd, Header)
-        assert isinstance(body, body)
-        # assert isinstance(cred, Credential) # todo
+        assert isinstance(header, Header)
+        assert isinstance(bodyRaw, bytes)
+        assert isinstance(cred, Credential) # todo
         self.evp = evp
-        self.hd = hd
-        self.body = body
+        self.header = header
+        self.bodyRaw = bodyRaw
         self.cred = cred
+
+    def setBodyRaw(self, bodyRaw):
+        self.bodyRaw = bodyRaw
     
     def digest(self, hashType):
-        pass
+        payload = self.header.pack()
+        payload += self.bodyRaw
+        return utils.doDigest(payload, hashType)
+    
+    @classmethod
+    def parse(cls, payload):
+        assert isinstance(payload, bytes)
+        assert common.MIN_MESSAGE_SIZE <= len(payload)
 
+        msg = Message()
+        offset = 0
+        msg.evp = Envelope.parse(payload[:common.ENVELOPE_LEN])
+        offset += common.ENVELOPE_LEN
+        
+        msg.header = Header.parse(payload[offset:offset+common.HEADER_LEN])
+        offset += common.HEADER_LEN
+
+        bodyLength = msg.header.bodyLength
+        msg.bodyRaw = payload[offset:offset+bodyLength]
+        offset += bodyLength
+
+        credLength = utils.u32(payload[offset:])
+        offset  += 4
+        msg.cred = Credential.parse(payload[offset:offset+credLength])
+        offset += credLength
+        assert offset == len(payload)
+        return msg
+    
+    def pack(self):
+        payload = b''
+        bodyLen = len(self.bodyRaw)
+        self.header.setBodyLength(bodyLen)
+        credRaw = self.cred.pack()
+        credLen = len(credRaw)
+        self.evp.setMessageLength(common.HEADER_LEN + bodyLen + credLen)
+
+        payload += self.evp.pack()
+        payload += self.header.pack()
+        payload += self.bodyRaw
+        payload += credRaw
+        return payload
+
+
+    def __str__(self):
+        res = "Message:\n"
+        res += str(self.evp)
+        res += str(self.header)
+        res += str(self.body)
+        res += str(self.cred)
+        return res
 
 """Cautions
 1. The order of transmission of data packets follows the network byte order (also called the Big-Endian [11]).
@@ -433,10 +491,83 @@ Body = bytes
 
 class Credential(object):
     def __init__(self, ):
-        pass
+        self.isEmpty = True
     
+    def setVals(self, 
+            version: int,
+            reserved: int,
+            options: int,
+            signer: tuple,
+            credType: bytes,
+            signedInfo: tuple):
+        """
+        0                   1                   2                   3
+        0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+        .---------------------------------------------------------------.
+        |           CredentialLength                                    |
+        |---------------------------------------------------------------|
+        |   Version     |    Reserved   |       Options                 |
+        |---------------------------------------------------------------|
+        |                                                               |
+        |   Signer: <Handle, Index>                                     |
+        |                                                               |
+        |---------------------------------------------------------------|
+        |           Type      (UTF8-String)                             |
+        |---------------------------------------------------------------|
+        |                                                               |
+        |   SignedInfo: <Length> : 4-byte unsigned integer              |
+        |               DigestAlgorithm: <UTF8-String>                  |
+        |               SignedData: <Length, Signature>                 |
+        |                                                               |
+        '---------------------------------------------------------------'
+        """
+        assert isinstance(version, int)
+        assert isinstance(reserved, int)
+        assert isinstance(options, int)
+        assert isinstance(signer, tuple)
+        assert len(signer) == 2
+        assert isinstance(signer[0], bytes)
+        assert isinstance(signer[1], int)
+        assert isinstance(credType, bytes)
+        assert isinstance(signedInfo, tuple)
+        assert len(signedInfo) == 2
+        assert issubclass(signedInfo[0], Enum)
+        assert issubclass(signedInfo[1], bytes)
+
+        self.isEmpty = False
+        self.version = version
+        self.reserved = reserved
+        self.options = options
+        self.signer = signer
+        self.credType = credType
+        self.signedInfo = signedInfo
+
     def pack(self):
-        pass
+        if self.isEmpty:
+            return utils.p32(0)
+        payload = b''
+        payload += utils.p8(self.version)
+        payload += utils.p8(self.reserved)
+        payload += utils.p16(self.options)
+        # signer.handle
+        payload += utils.packByteArray(self.signer[0])
+        # signer.handle_index
+        payload += utils.p32(self.signer[1])
+        payload += utils.packByteArray(self.credType)
+        
+        signedInfoPack = b''
+        signedInfoPack += utils.packByteArray(self.signedInfo[0])
+        signedInfoPack += utils.packByteArray(self.signedInfo[1])
+        signedInfoPack = utils.p32(len(signedInfoPack)) + signedInfoPack
+        payload += signedInfoPack
+
+        payload = utils.p32(len(payload)) + payload
+        return payload
+
+    @classmethod
+    def emptyCred(cls):
+        cred = Credential()
+        return cred
 
     @classmethod
     def parse(cls, payload):
@@ -453,9 +584,6 @@ class RequestDigest(object):
     def __init__(self):
         self.dai = 0
         self.digest = b''
-    
-    def pack(self):
-        pass
 
     @classmethod
     def parse(cls, payload):
@@ -476,6 +604,12 @@ class RequestDigest(object):
             logger.critical(f"unimplemented digest parse : {rd.dai:#x}")
         return rd
     
+    def pack(self):
+        payload = b''
+        payload += utils.p8(self.dai)
+        payload += self.digest
+        return payload
+
     def __len__(self):
         l = len(self.digest)
         if l == 0:

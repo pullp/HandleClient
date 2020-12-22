@@ -9,9 +9,10 @@ from handleclient import message
 from handleclient import request
 from handleclient import response
 from handleclient import handlevalue
+from handleclient import auth
 
 from handleclient.handlevalue import HandleValue
-from handleclient.message import Envelope, Header, Body, Credential
+from handleclient.message import Message, Envelope, Header,Credential
 
 from handleclient.auth import ChallengeBody
 
@@ -50,40 +51,34 @@ class AddValueResponseBody(object):
 
 
 
-def simpleAddValueTest(handle, valueList, serverAddr):
+def simpleAddValueTest(handle, valueList, serverAddr, handleID=b'', 
+        handleIndex=0, authType=0,
+        secretKey=b'', privateKeyContent =b'',
+        privateKeyPasswd=b''):
     assert isinstance(handle, bytes)
     # construct payload
-    evp = Envelope()
-    evp.setMessageFlag(0x020b)
-    evp.setRequestId(0x1236)
+    msg = Message()
 
-    hd = Header()
-    hd.setOpCode(Header.OC.OC_ADD_VALUE.value)
-    hd.setOpFlag(Header.OPF.OPF_CT.value 
+    msg.evp.setMessageFlag(0x020b)
+    msg.evp.setRequestId(0x1236)
+
+    msg.header.setOpCode(Header.OC.OC_ADD_VALUE.value)
+    msg.header.setOpFlag(Header.OPF.OPF_CT.value 
             | Header.OPF.OPF_REC.value 
             | Header.OPF.OPF_CA.value 
             | Header.OPF.OPF_PO.value)
-    hd.setSiteInfoSerialNumber(6)
-    hd.setRecursionCount(0)
-    hd.setExpirationTime(int(time.time() + 3600 * 3))
+    msg.header.setSiteInfoSerialNumber(6)
+    msg.header.setRecursionCount(0)
+    msg.header.setExpirationTime(int(time.time() + 3600 * 3))
 
     body = AddValueRequestBody()
     body.setVals(handle, valueList)
-    bodyPack = body.pack()
-    bodyLen = len(bodyPack)
+    bodyRaw = body.pack()
+    msg.setBodyRaw(bodyRaw)
 
-    hd.setBodyLength(bodyLen)
-    cred = utils.p32(0)
-    credLen = len(cred)
-
-    evp.setMessageLength(common.HEADER_LEN + bodyLen + credLen)
-
-    payload = b''
-    payload += evp.pack()
-    payload += hd.pack()
-    payload += bodyPack
-    payload += cred
-    logger.debug(f"body hash : {utils.doDigest(common.HASH_CODE.SHA256.value, [hd.pack(), bodyPack]).hex()}")
+    logger.debug(f"add value request:\n{str(msg)}")
+    payload = msg.pack()
+    logger.debug(f"body hash : {utils.doDigest(common.HASH_CODE.SHA256.value, [msg.header.pack(), bodyRaw]).hex()}")
     # send payload
     sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock_tcp.connect(serverAddr)
@@ -96,7 +91,8 @@ def simpleAddValueTest(handle, valueList, serverAddr):
     # open("./traffics/res.tmp", "wb").write(res)
     # res = open("./traffics/res.tmp", "rb").read()
     logger.debug(f"reslen : {len(res)}")
-    resp = response.Response.parse(res)
+    resp = Message.parse(res)
+    logger.debug(f"add value response:\n{str(resp)}")
     if (rc := resp.header.responseCode) == Header.RC.RC_SUCCESS:
         resp.body = AddValueResponseBody.parse(resp.bodyRaw)
     elif rc == Header.RC.RC_PREFIX_REFERRAL.value:
@@ -104,7 +100,10 @@ def simpleAddValueTest(handle, valueList, serverAddr):
     elif rc == Header.RC.RC_AUTHEN_NEEDED.value:
         sessionID = resp.evp.sessionID
         logger.debug(f"session id : {sessionID}")
-        resp.body = ChallengeBody.parse(resp.bodyRaw)
+        resp.body = auth.ChallengeBody.parse(resp.bodyRaw)
+        auth.doAuth(sock_tcp, resp, handleID, handleIndex,
+            authType, secretKey, privateKeyContent, privateKeyPasswd)
+        # resp.body = ChallengeBody.parse(resp.bodyRaw)
     else:
         logger.warning(f"unimplemented response parser : {rc:#x}")
     # logger.info(str(resp))
