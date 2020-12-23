@@ -14,14 +14,14 @@ from handleclient import message
 from handleclient import handlevalue
 
 from handleclient.handlevalue import HandleValue
-from handleclient.message import Message, Envelope, Header,Credential, RequestDigest
+from handleclient.message import Message, Envelope, Header, Body, Credential, RequestDigest
 
 logger = logging.getLogger(__name__)
 logger.setLevel(common.LOG_LEVEL)
 logger.addHandler(common.ch)
 
 
-class ChallengeBody(object):
+class ChallengeBody(Body):
     """from server to client
     """
     def __init__(self):
@@ -49,11 +49,9 @@ class ChallengeBody(object):
         return cb
 
     def __str__(self):
-        res = ""
-        res += "digest:\n"
-        res += str(self.digest) + '\n'
-        res += "nonce:\n"
-        res += self.nonce.hex()
+        res = "challenge body:\n"
+        res += f" digest : {str(self.digest)}\n"
+        res += f" nonce : {self.nonce.hex()}"
         return res
 
 # auth type
@@ -61,7 +59,7 @@ class AT(Enum):
     PUB_KEY = 1
     SEC_KEY = 2
 
-class ChallengeAnswerBody(object):
+class ChallengeAnswerBody(Body):
     """https://tools.ietf.org/html/rfc3652#section-3.5.2
     """
     def __init__(self):
@@ -82,8 +80,12 @@ class ChallengeAnswerBody(object):
         self.secretKey = secretKey
         self.privateKeyContent = privateKeyContent 
         self.privateKeyPasswd = privateKeyPasswd
+        self._generateAnswer()
     
     def _generateAnswer(self):
+        """Util.decrypt
+        Util.getPrivateKeyFromBytes
+        """
         if self.authType == AT.PUB_KEY.value:
             encryptionType = utils.u32(self.privateKeyContent)
             if encryptionType == common.ENCRYPT_NONE:
@@ -128,7 +130,7 @@ class ChallengeAnswerBody(object):
             keyType = utils.unpackByteArray(data[offset:])
             offset += 4 + len(keyType)
             logger.debug(f"key type : {keyType.decode()}")
-            if keyType == common.KEY_ENCODING_RSACRT_PRIVATE:
+            if keyType == common.KEY_ENCODING_RSA_PRIVATE:
                 n = utils.unpackByteArray(data[offset:])
                 offset += 4 + len(n)
                 d = utils.unpackByteArray(data[offset:])
@@ -139,7 +141,35 @@ class ChallengeAnswerBody(object):
 
                 n = int.from_bytes(n, byteorder='big')
                 d = int.from_bytes(d, byteorder='big')
+            elif keyType == common.KEY_ENCODING_RSACRT_PRIVATE:
+                n = utils.unpackByteArray(data[offset:])
+                offset += 4 + len(n)
+                pubEx = utils.unpackByteArray(data[offset:])
+                offset += 4 + len(pubEx)
+                ex = utils.unpackByteArray(data[offset:])
+                offset += 4 + len(ex)
+                p = utils.unpackByteArray(data[offset:])
+                offset += 4 + len(p)
+                q = utils.unpackByteArray(data[offset:])
+                offset += 4 + len(q)
+                exP = utils.unpackByteArray(data[offset:])
+                offset += 4 + len(exP)
+                exQ = utils.unpackByteArray(data[offset:])
+                offset += 4 + len(exQ)
+                coeff = utils.unpackByteArray(data[offset:])
+                offset += 4 + len(coeff)
 
+                logger.debug(f"n = 0x{n.hex()}")
+                logger.debug(f"pubEx = 0x{pubEx.hex()}")
+                logger.debug(f"ex = 0x{ex.hex()}")
+                logger.debug(f"p = 0x{p.hex()}")
+                logger.debug(f"q = 0x{q.hex()}")
+                logger.debug(f"exP = 0x{exP.hex()}")
+                logger.debug(f"exQ = 0x{exQ.hex()}")
+                logger.debug(f"coeff = 0x{coeff.hex()}")
+                
+                d = int.from_bytes(ex, byteorder='big')
+                n = int.from_bytes(n, byteorder='big')
                 # todo
             else:
                 logger.error(f"unsupport key type : {keyType.decode()}")
@@ -153,7 +183,8 @@ class ChallengeAnswerBody(object):
                 ), byteorder='big'
             )
             logger.debug(f"challengeDigest : {hex(challengeDigest)}")
-            signature = bytes.fromhex(hex(pow(challengeDigest, d, n))[2:])
+            tmp = pow(challengeDigest, d, n)
+            signature = int.to_bytes(tmp, length=256, byteorder='big')
             logger.debug(f"signature : {signature.hex()}({len(signature)})")
             answer = b''
             answer += utils.packByteArray(sigHashType)
@@ -162,7 +193,7 @@ class ChallengeAnswerBody(object):
             logger.error(f"unsupport auth type {self.authType:#x}")
         else:
             logger.error(f"unsupport auth type {self.authType:#x}")
-        return answer
+        self.answer = answer
 
     def pack(self):
         payload = b''
@@ -172,11 +203,20 @@ class ChallengeAnswerBody(object):
             logger.critical(f"unsupport auth type {self.authType}")
         payload += utils.packByteArray(self.handleID)
         payload += utils.p32(self.handleIndex)
-        answer = self._generateAnswer()
-        payload += answer
+        payload += utils.packByteArray(self.answer)
         return payload
 
+    def __str__(self):
+        res = "challenge answer body :\n"
+        res += f" auth type : {utils.printableCode(AT, self.authType)}\n"
+        res += f" handle : {self.handleID.decode()} ({self.handleIndex})"
+        logger.debug(f"answer : {self.answer.hex()}")
+        return res
 
+r"""
+src\main\java\net\handle\server\servletcontainer\auth\StandardHandleAuthenticator.java
+constructSignedResponse
+"""
 def doAuth(sockfd, challengeMessage, handleID,
             handleIndex, authType, secretKey=b'', privateKeyContent =b'',
             privateKeyPasswd=b''):
@@ -186,48 +226,34 @@ def doAuth(sockfd, challengeMessage, handleID,
     assert isinstance(challengeMessage, Message)
 
     sessionID = challengeMessage.evp.sessionID
-    challengeBody = challengeMessage.body
+    # challengeBody = challengeMessage.body
 
     cab = ChallengeAnswerBody()
     cab.setVals(challengeMessage.body, handleID,
         handleIndex, authType, secretKey, privateKeyContent, privateKeyPasswd)
-    bodyRaw = cab.pack()
 
-    evp = Envelope()
-    evp.setMessageFlag(0x020b)
-    evp.setRequestId(0x1236)
-    evp.setSessionId(sessionID)
+    msg = Message()
+    msg.evp.setMessageFlag(0)
+    msg.evp.setRequestId(1234)
+    msg.evp.setSessionId(sessionID)
 
-    hd = Header()
-    hd.setOpCode(Header.OC.OC_CHALLENGE_RESPONSE .value)
-    hd.setOpFlag(Header.OPF.OPF_CT.value 
+    msg.header.setOpCode(Header.OC.OC_CHALLENGE_RESPONSE .value)
+    msg.header.setOpFlag(Header.OPF.OPF_CT.value 
             | Header.OPF.OPF_REC.value 
             | Header.OPF.OPF_CA.value 
             | Header.OPF.OPF_PO.value)
-    hd.setSiteInfoSerialNumber(6)
-    hd.setRecursionCount(0)
-    hd.setExpirationTime(int(time.time() + 3600 * 3))
+    msg.header.setSiteInfoSerialNumber(6)
+    msg.header.setRecursionCount(0)
+    msg.header.setExpirationTime(int(time.time() + 3600 * 3))
 
-    bodyLen = len(bodyRaw)
-    hd.setBodyLength(bodyLen)
-    
-    cred = Credential.emptyCred()
-    credRaw = cred.pack()
-    credLen = len(credRaw)
+    msg.body = cab
 
-    evp.setMessageLength(common.HEADER_LEN + bodyLen + credLen)
+    logger.debug(str(msg))
 
-    payload = b''
-    payload += evp.pack()
-    payload += hd.pack()
-    payload += bodyRaw
-    payload += credRaw
-    
-    message = Message()
-    message.setVals(evp, hd, bodyRaw, cred)
-    logger.debug(str(message))
+    payload = msg.pack()
 
-    sockfd.send(payload)
+    cnt = sockfd.send(payload)
+    logger.debug(f"send res : {cnt}")
 
     res = b''
     while len(tmp := sockfd.recv(0x100)) != 0:

@@ -10,7 +10,7 @@ from handleclient import utils
 # from handleclient import handlevalue
 
 # from handleclient.handlevalue import HandleValue
-# from handleclient.message import Message, Envelope, Header,Credential
+# from handleclient.message import Message, Envelope, Header, Body, Credential
 
 
 logger = logging.getLogger(__name__)
@@ -44,13 +44,13 @@ class Reference(object):
         return ref
 
     def pack(self):
-        payload = b''
-        payload += utils.p32(len(self.handle)) + self.handle
-        payload += utils.p32(len(self.index))
+        payload = utils.packByteArray(self.handle) + utils.p32(self.index)
+        # payload += utils.p32(len(self.handle)) + self.handle
+        # payload += utils.p32(len(self.index))
         return payload
 
     def __str__(self):
-        res = f"{self.handle.decode()} ({self.index})\n"
+        res = f"{self.handle.decode()} ({self.index})"
         return res
 
     @staticmethod
@@ -64,6 +64,8 @@ class Reference(object):
         return offset
 
 class HandleValue(object):
+    """https://tools.ietf.org/html/rfc3651#section-3.1
+    """
     # permission
     class PERM(Enum):
         PUBLIC_WRITE    = 1
@@ -224,8 +226,8 @@ class HandleValue(object):
         res += f" timestamp : {utils.formatTimestamp(self.timestamp)}({self.timestamp})\n"
         res += f" references:\n"
         for ref in self.refs:
-            res == "  " + str(ref)
-        return res
+            res == "  " + str(ref) + '\n'
+        return res[:-1]
 
     @staticmethod
     def calcHandleValueSize(payload: bytes, offset: int) -> int:
@@ -292,7 +294,7 @@ class ServiceInterface(object):
         logger.warning("todo")
 
     def __str__(self):
-        res = f"interface : {utils.printableCode(ServiceInterface.ServiceType, self.serviceType)} {utils.printableCode(ServiceInterface.Protocol, self.protocol)} {self.portNumber:d}\n"
+        res = f"interface : {utils.printableCode(ServiceInterface.ServiceType, self.serviceType)} {utils.printableCode(ServiceInterface.Protocol, self.protocol)} {self.portNumber:d}"
         return res
 
 class ServerRecord(object):
@@ -328,7 +330,7 @@ class ServerRecord(object):
         res += f" public key : todo\n"
         res += " interfaces:\n"
         for intf in self.interfaces:
-            res += "  " + str(intf)
+            res += f"  {str(intf)}\n"
         return res
 
 
@@ -478,8 +480,8 @@ class HS_SITE(HandleValue):
         for _i in range(serverCnt):
             serverID = utils.u32(data[offset:])
             offset += 4
-            address = data[offset:offset + common.IP_ADDRESS_LENGTH]
-            offset += common.IP_ADDRESS_LENGTH
+            address = data[offset:offset + common.IPV6_SIZE_IN_BYTES]
+            offset += common.IPV6_SIZE_IN_BYTES
             publicKey = utils.unpackByteArray(data[offset:])
             offset += 4 + len(publicKey)
 
@@ -516,7 +518,7 @@ class HS_SITE(HandleValue):
         return payload
 
     def __str__(self):
-        res = super().__str__()
+        res = super().__str__() + '\n'
         res += "data:"
         res += f"  data format ersion : {self.version}\n"
         res += f"  protocol version : {self.majorProtocolVersion}.{self.minorProtocolVersion}\n"
@@ -529,7 +531,7 @@ class HS_SITE(HandleValue):
             res += f"  {attribute[0].decode()} : {attribute[1].decode()}\n"
         res += "servers:"
         for server in self.servers:
-            res += str(server)
+            res += str(server)+'\n'
         return res
 
 
@@ -581,10 +583,10 @@ class HS_ADMIN(HandleValue):
         return payload
 
     def __str__(self):
-        res = super().__str__()
+        res = super().__str__()+'\n'
         res += "data:\n"
         res += f"  adminPermission : {utils.printableFlags(HS_ADMIN.PERM, self.adminPermission)}\n"
-        res += f"  admin ref : {self.adminID.decode()} ({self.adminIndex})\n"
+        res += f"  admin ref : {self.adminID.decode()} ({self.adminIndex})"
         return res
 
 
@@ -612,8 +614,8 @@ class HS_STRING(HandleValue):
 
 
     def __str__(self):
-        res = super().__str__()
-        res += f"data: {self.info}\n"
+        res = super().__str__()+'\n'
+        res += f"data: {self.info}"
         return res
 
 
@@ -626,7 +628,6 @@ class HS_PUBKEY(HandleValue):
 
     def setBasicVals(self, *args, **kwargs):
         super().setVals(*args, **kwargs)
-        logger.warning("unimplemented")
     
     def parseData(self, data):
         assert isinstance(data, bytes)
@@ -634,21 +635,51 @@ class HS_PUBKEY(HandleValue):
 
         self.keyType = utils.unpackByteArray(data[offset:])
         offset += 4 + len(self.keyType)
-
         # unused currently
         self.flags = utils.u16(data[offset:])
         offset += 2
-        logger.warning("unimplemented")
 
-        # todo
-    
+        if self.keyType == common.KEY_ENCODING_RSA_PUBLIC:
+            e = utils.unpackByteArray(data[offset:])
+            offset += 4 + len(e)
+            n = utils.unpackByteArray(data[offset:])
+            offset += len(n)
+            self.e = int.from_bytes(e, byteorder='big')
+            self.n = int.from_bytes(n, byteorder='big')
+            logger.debug(f"e = {hex(self.e)}")
+            logger.debug(f"n = {hex(self.n)}")
+        elif self.keyType == common.KEY_ENCODING_DSA_PUBLIC:
+            q = utils.unpackByteArray(data[offset:])
+            offset += 4 + len(q)
+            p = utils.unpackByteArray(data[offset:])
+            offset += len(p)
+            g = utils.unpackByteArray(data[offset:])
+            offset += len(g)
+            y = utils.unpackByteArray(data[offset:])
+            offset += len(y)
+            logger.error("unimplemented")
+        elif self.keyType == common.KEY_ENCODING_DH_PUBLIC:
+            y = utils.unpackByteArray(data[offset:])
+            offset += len(y)
+            p = utils.unpackByteArray(data[offset:])
+            offset += len(p)
+            g = utils.unpackByteArray(data[offset:])
+            offset += len(g)
+            logger.error("unimplemented")
+        else:
+            logger.error(f"unsupport key type {self.keyType}")
+
     def packData(self):
         logger.warning("unimplemented")
 
     def __str__(self):
-        res = super().__str__()
+        res = super().__str__()+'\n'
         res += "data:\n"
         res += f"  public key type : {self.keyType}\n"
+        if self.keyType == common.KEY_ENCODING_RSA_PUBLIC:
+            res += f" n = {hex(self.n)}\n e = {hex(self.e)}"
+        else:
+            res += f"unsupport key type : {self.keyType}"
         return res
 
 
@@ -676,7 +707,9 @@ class HS_VLIST(HandleValue):
             offset += 4 + len(handle)
             index = utils.u32(data[offset:])
             offset += 4
-            refs.append(Reference(handle, index))
+            ref = Reference()
+            ref.setVals(handle, index)
+            refs.append(ref)
         
         self.refs = refs
         assert offset == len(data)
@@ -685,7 +718,7 @@ class HS_VLIST(HandleValue):
         logger.warning("unimplemented")
 
     def __str__(self):
-        res = super().__str__()
+        res = super().__str__()+'\n'
         res += "data:\n"
         for ref in self.refs:
             res += "  " + str(ref)
@@ -712,8 +745,7 @@ class HS_CERT(HandleValue):
         logger.warning("unimplemented")
 
     def __str__(self):
-        res = super().__str__()
-
+        res = super().__str__()+'\n'
         return res
 
 # class HS_SIGNATURE(HandleValue):

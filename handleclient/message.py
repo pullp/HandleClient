@@ -21,25 +21,20 @@ class Message(object):
         self.header = Header()
         self.bodyRaw = b''
         self.cred = Credential()
-        self.body = "unparsed"
+        self.body = RawBody()
 
-    def setVals(self, evp, header, bodyRaw, cred):
+    def setVals(self, evp, header, body, cred):
         assert isinstance(evp, Envelope)
         assert isinstance(header, Header)
-        assert isinstance(bodyRaw, bytes)
+        assert isinstance(body, Body)
         assert isinstance(cred, Credential) # todo
         self.evp = evp
         self.header = header
-        self.bodyRaw = bodyRaw
+        self.body = body
         self.cred = cred
 
-    def setBodyRaw(self, bodyRaw):
-        self.bodyRaw = bodyRaw
-    
     def digest(self, hashType):
-        payload = self.header.pack()
-        payload += self.bodyRaw
-        return utils.doDigest(payload, hashType)
+        return utils.doDigest(hashType, [self.header.pack(), self.body.pack()])
     
     @classmethod
     def parse(cls, payload):
@@ -55,7 +50,7 @@ class Message(object):
         offset += common.HEADER_LEN
 
         bodyLength = msg.header.bodyLength
-        msg.bodyRaw = payload[offset:offset+bodyLength]
+        msg.body = RawBody.parse(payload[offset:offset+bodyLength])
         offset += bodyLength
 
         credLength = utils.u32(payload[offset:])
@@ -67,7 +62,8 @@ class Message(object):
     
     def pack(self):
         payload = b''
-        bodyLen = len(self.bodyRaw)
+        bodyRaw = self.body.pack()
+        bodyLen = len(bodyRaw)
         self.header.setBodyLength(bodyLen)
         credRaw = self.cred.pack()
         credLen = len(credRaw)
@@ -75,16 +71,16 @@ class Message(object):
 
         payload += self.evp.pack()
         payload += self.header.pack()
-        payload += self.bodyRaw
+        payload += bodyRaw
         payload += credRaw
         return payload
 
 
     def __str__(self):
         res = "Message:\n"
-        res += str(self.evp)
-        res += str(self.header)
-        res += str(self.body)
+        res += str(self.evp)+"\n"
+        res += str(self.header)+"\n"
+        res += str(self.body)+"\n"
         res += str(self.cred)
         return res
 
@@ -276,7 +272,7 @@ class Envelope(object):
         res += f"  session id   : {self.sessionID:#x}\n"
         res += f"  request id   : {self.requestId:#x}\n"
         res += f"  sequence no  : {self.sequenceNumber:#x}\n"
-        res += f"  message len  : {self.messageLength:#x}\n"
+        res += f"  message len  : {self.messageLength:#x}"
         return res
 
 """
@@ -483,11 +479,31 @@ class Header(object):
         res +=  (f"  expirationTime   : "
                 + f"{utils.formatTimestamp(self.expirationTime)}"
                 + f"({self.expirationTime:d})\n")
-        res += f"  bodyLength       : {self.bodyLength:#x}\n"
+        res += f"  bodyLength       : {self.bodyLength:#x}"
         return res
 
-Body = bytes
+class Body(object):
+    def __init__(self):
+        pass
+    def __str__(self):
+        return "Body :"
 
+class RawBody(Body):
+    def __init__(self):
+        self.bodyRaw = b''
+    
+    def pack(self):
+        return self.bodyRaw
+    
+    def __str__(self):
+        return "raw body"
+    
+    @classmethod
+    def parse(cls, payload):
+        assert isinstance(payload, bytes)
+        rb = RawBody()
+        rb.bodyRaw = payload
+        return rb
 
 class Credential(object):
     def __init__(self, ):
@@ -577,7 +593,12 @@ class Credential(object):
         # raise Exception("not impl")
 
     def __str__(self):
-        return ""
+        res = "Cred :\n"
+        if self.isEmpty:
+            res += " empty"
+        else:
+            res += " todo"
+        return res
 
 class RequestDigest(object):
 

@@ -12,7 +12,7 @@ from handleclient import handlevalue
 from handleclient import auth
 
 from handleclient.handlevalue import HandleValue
-from handleclient.message import Message, Envelope, Header,Credential
+from handleclient.message import Message, Envelope, Header, Body, Credential
 
 from handleclient.auth import ChallengeBody
 
@@ -21,7 +21,7 @@ logger.setLevel(common.LOG_LEVEL)
 logger.addHandler(common.ch)
 
 
-class AddValueRequestBody(object):
+class AddValueRequestBody(Body):
     def __init__(self):
         self.handle = b''
         self.valueList = []
@@ -41,7 +41,15 @@ class AddValueRequestBody(object):
             payload += value.pack()
         return payload
 
-class AddValueResponseBody(object):
+    def __str__(self):
+        res = ""
+        res += f"handle : {self.handle}\n"
+        res += f"value list:\n"
+        for value in self.valueList:
+            res += f"  {str(value)}\n"
+        return res
+
+class AddValueResponseBody(Body):
     def __init__(self):
         pass
 
@@ -59,7 +67,7 @@ def simpleAddValueTest(handle, valueList, serverAddr, handleID=b'',
     # construct payload
     msg = Message()
 
-    msg.evp.setMessageFlag(0x020b)
+    msg.evp.setMessageFlag(0)
     msg.evp.setRequestId(0x1236)
 
     msg.header.setOpCode(Header.OC.OC_ADD_VALUE.value)
@@ -73,12 +81,11 @@ def simpleAddValueTest(handle, valueList, serverAddr, handleID=b'',
 
     body = AddValueRequestBody()
     body.setVals(handle, valueList)
-    bodyRaw = body.pack()
-    msg.setBodyRaw(bodyRaw)
+    msg.body = body
 
     logger.debug(f"add value request:\n{str(msg)}")
     payload = msg.pack()
-    logger.debug(f"body hash : {utils.doDigest(common.HASH_CODE.SHA256.value, [msg.header.pack(), bodyRaw]).hex()}")
+    logger.debug(f"request hash : {msg.digest(common.HASH_CODE.SHA256.value).hex()}")
     # send payload
     sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock_tcp.connect(serverAddr)
@@ -94,16 +101,16 @@ def simpleAddValueTest(handle, valueList, serverAddr, handleID=b'',
     resp = Message.parse(res)
     logger.debug(f"add value response:\n{str(resp)}")
     if (rc := resp.header.responseCode) == Header.RC.RC_SUCCESS:
-        resp.body = AddValueResponseBody.parse(resp.bodyRaw)
+        resp.body = AddValueResponseBody.parse(resp.body.pack())
     elif rc == Header.RC.RC_PREFIX_REFERRAL.value:
-        resp.body = response.ReferralResponseBody.parse(resp.bodyRaw)
+        resp.body = response.ReferralResponseBody.parse(resp.body.pack())
     elif rc == Header.RC.RC_AUTHEN_NEEDED.value:
         sessionID = resp.evp.sessionID
         logger.debug(f"session id : {sessionID}")
-        resp.body = auth.ChallengeBody.parse(resp.bodyRaw)
+        resp.body = auth.ChallengeBody.parse(resp.body.pack())
         auth.doAuth(sock_tcp, resp, handleID, handleIndex,
             authType, secretKey, privateKeyContent, privateKeyPasswd)
-        # resp.body = ChallengeBody.parse(resp.bodyRaw)
+        # resp.body = ChallengeBody.parse(resp.body.pack())
     else:
         logger.warning(f"unimplemented response parser : {rc:#x}")
     # logger.info(str(resp))

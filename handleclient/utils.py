@@ -155,8 +155,8 @@ def countLine(suffixes=[".py"]):
     for file in files:
         lines = open(file, 'r', encoding='utf8').readlines()
         # print(lines[0])
-        lineCnt = len([l for l in lines if not l.startswith("#")])
-        # lineCnt = len([l for l in lines if len(l) < 0])
+        # lineCnt = len([l for l in lines if not l.startswith("#")])
+        lineCnt = len([l for l in lines if len(l) > 10])
         # lineCnt = len(lines )
         # del lines
         totalCnt += lineCnt

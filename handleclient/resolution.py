@@ -12,7 +12,7 @@ from handleclient import response
 from handleclient import handlevalue
 
 from handleclient.handlevalue import HandleValue
-from handleclient.message import Message, Envelope, Header,Credential
+from handleclient.message import Message, Envelope, Header, Body, Credential
 
 logger = logging.getLogger(__name__)
 logger.setLevel(common.LOG_LEVEL)
@@ -58,7 +58,7 @@ The Message Body for any query request is defined as follows:
 """
 
 # 如果别的respone结构和这个类似(可以复用), 就把这个类放到response.py中(记得改个名字)
-class ResolutionRequestBody(object):
+class ResolutionRequestBody(Body):
     def __init__(self):
         self.handle     = b''
         self.indexList  = []
@@ -144,7 +144,7 @@ class ResolutionRequestBody(object):
         res = "ResolutionRequestBody:\n"
         res += f"  handle       : {self.handle.decode(common.TEXT_ENCODING)}\n"
         res += f"  indexList    : {self.indexList}\n"
-        res += f"  typeList     : {list(map(lambda x : x.decode(), self.typeList))}\n"
+        res += f"  typeList     : {list(map(lambda x : x.decode(), self.typeList))}"
         return res
 
 
@@ -178,46 +178,33 @@ class ResolutionResponseBody():
         return rrb
 
     def __str__(self):
-        res = super().__str__()
+        res = super().__str__()+'\n'
         res += "values:\n"
         for value in self.valueList:
-            res += "\n" + str(value)
+            res += f"{str(value)}\n\n"
         return res
 
 def simpleResolutionTest(handle, serverAddr=''):
     assert isinstance(handle, bytes)
 
     # construct payload
-    evp = Envelope()
-    evp.setMessageFlag(0x020b)
-    evp.setRequestId(0x1235)
+    msg = Message()
+    msg.evp.setRequestId(0x1235)
 
-    hd  = Header()
-    hd.setOpCode(Header.OC.OC_RESOLUTION.value)
-    hd.setOpFlag(Header.OPF.OPF_CT.value 
+    msg.header.setOpCode(Header.OC.OC_RESOLUTION.value)
+    msg.header.setOpFlag(Header.OPF.OPF_CT.value 
             | Header.OPF.OPF_REC.value 
             | Header.OPF.OPF_CA.value 
             | Header.OPF.OPF_PO.value)
-    hd.setSiteInfoSerialNumber(6)
-    hd.setRecursionCount(0)
-    hd.setExpirationTime(int(time.time() + 3600*3))
+    msg.header.setSiteInfoSerialNumber(6)
+    msg.header.setRecursionCount(0)
+    msg.header.setExpirationTime(int(time.time() + 3600*3))
     
-    body = ResolutionRequestBody()
-    body.setVals(handle, [], [])
-    bodyPack = body.pack()
-    bodyLen = len(bodyPack)
-    # print()
-    hd.setBodyLength(bodyLen)
+    msg.body = ResolutionRequestBody()
+    msg.body.setVals(handle, [], [])
 
-    cred = utils.p32(0)
-    credLen = len(cred)
-
-    evp.setMessageLength(common.HEADER_LEN + bodyLen + credLen)
-
-    payload = evp.pack()
-    payload += hd.pack()
-    payload += bodyPack
-    payload += cred
+    payload = msg.pack()
+    logger.debug(f"resolution request:\n{str(msg)}")
 
     # logger.debug(evp)
     # logger.debug(hd)
@@ -237,19 +224,19 @@ def simpleResolutionTest(handle, serverAddr=''):
     # res = open("./traffics/res.tmp", "rb").read()
     logger.debug(f"reslen : {len(res)}\n")
     resp = Message.parse(res)
-    if (rc := resp.header.responseCode) == Header.RC.RC_SUCCESS:
-        resp.body = ResolutionResponseBody.parse(resp.bodyRaw)
+    if (rc := resp.header.responseCode) == Header.RC.RC_SUCCESS.value:
+        resp.body = ResolutionResponseBody.parse(resp.body.pack())
     elif rc == Header.RC.RC_HANDLE_NOT_FOUND.value \
         or rc == Header.RC.RC_SERVER_NOT_RESP.value \
-        or rc == Header.RC.RC_SERVER_BUSY \
-        or rc == Header.RC.RC_ACCESS_DENIED:
-        resp.body = response.ErrorResponseBody().parse(resp.bodyRaw)
-    elif rc == Header.RC.RC_SERVICE_REFERRAL:
+        or rc == Header.RC.RC_SERVER_BUSY.value \
+        or rc == Header.RC.RC_ACCESS_DENIED.value:
+        resp.body = response.ErrorResponseBody().parse(resp.body.pack())
+    elif rc == Header.RC.RC_SERVICE_REFERRAL.value:
         # parse referral
         logger.warning(f"parse referral type todo")
         pass
-    elif rc == Header.RC.RC_AUTHEN_NEEDED \
-        and (resp.header.opFlag & Header.OPF.OPF_RD == 1):
+    elif rc == Header.RC.RC_AUTHEN_NEEDED.value \
+        and (resp.header.opFlag & Header.OPF.OPF_RD.value == 1):
         logger.warning(f"parse auth type todo")
     else:
         logger.warning(f"unsupport resolution response")
