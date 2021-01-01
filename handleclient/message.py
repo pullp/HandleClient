@@ -621,13 +621,15 @@ class RequestDigest(object):
             offset += common.SHA1_DIGEST_SIZE
         elif rd.dai == common.HASH_CODE.SHA256.value:
             rd.digest = payload[offset:offset+common.SHA256_DIGEST_SIZE]
+        elif rd.dai == common.HASH_CODE.OLD_FORMAT.value:
+            offset -= 1
+            rd.digest = utils.unpackByteArray(payload[offset:])
         else:
             logger.critical(f"unimplemented digest parse : {rd.dai:#x}")
         return rd
     
     def pack(self):
         payload = b''
-        payload += utils.p8(self.dai)
         payload += self.digest
         return payload
 
@@ -635,6 +637,8 @@ class RequestDigest(object):
         l = len(self.digest)
         if l == 0:
             return 0
+        elif self.dai == common.HASH_CODE.OLD_FORMAT.value:
+            return 4 + l
         else:
             return l + 1
     

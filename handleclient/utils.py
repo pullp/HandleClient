@@ -1,10 +1,11 @@
 
 import logging
 import hashlib
+import struct
 
 from enum import Enum
 from datetime import datetime
-from struct import pack, unpack
+# from struct import pack, unpack
 
 from handleclient import common
 
@@ -15,19 +16,19 @@ logger.addHandler(common.ch)
 # unpack int from bytes
 def u8(payload):
     assert isinstance(payload, bytes)
-    return unpack("!B", payload[:1])[0]
+    return struct.unpack("!B", payload[:1])[0]
 
 def u16(payload):
     assert isinstance(payload, bytes)
-    return unpack("!H", payload[:2])[0]
+    return struct.unpack("!H", payload[:2])[0]
 
 def u32(payload):
     assert isinstance(payload, bytes)
-    return unpack("!I", payload[:4])[0]
+    return struct.unpack("!I", payload[:4])[0]
 
 def u64(payload):
     assert isinstance(payload, bytes)
-    return unpack("!Q", payload[:8])[0]
+    return struct.unpack("!Q", payload[:8])[0]
 
 def unpackByteArray(payload: bytes) -> bytes:
     """unpack utf8 byte array from payload
@@ -39,19 +40,19 @@ def unpackByteArray(payload: bytes) -> bytes:
 # pack int to bytes
 def p8(val):
     assert isinstance(val, int)
-    return pack("!B", val)
+    return struct.pack("!B", val)
 
 def p16(val):
     assert isinstance(val, int)
-    return pack("!H", val)
+    return struct.pack("!H", val)
 
 def p32(val):
     assert isinstance(val, int)
-    return pack("!I", val)
+    return struct.pack("!I", val)
 
 def p64(val):
     assert isinstance(val, int)
-    return pack("!Q", val)
+    return struct.pack("!Q", val)
 
 def packByteArray(arr: bytes) -> bytes:
     assert isinstance(arr, bytes)
@@ -131,8 +132,17 @@ def doDigest(hashType, datas):
     
     return m.digest()
 
-
-    
+def hexdump(payload, mod=16):
+    assert isinstance(payload, bytes)
+    res = ""
+    for i in range(0, len(payload), mod):
+        l = f"{i:#04x}: "
+        for j in range(mod):
+            if (i+j) >= len(payload):
+                break
+            l += f" {payload[i+j]:02X}"
+        res += l + '\n'
+    return res
 
 ################################################################
 # below codes are just for fun XD

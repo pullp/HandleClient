@@ -20,6 +20,40 @@ logger = logging.getLogger(__name__)
 logger.setLevel(common.LOG_LEVEL)
 logger.addHandler(common.ch)
 
+def rsaDigestSign(datas, hashType, rsaKeySize, n, d):
+    """https://medium.com/@bn121rajesh/rsa-sign-and-verify-using-openssl-behind-the-scene-bf3cac0aade2"""
+    assert isinstance(datas, list)
+    assert all(isinstance(item, bytes) for item in datas)
+    assert isinstance(hashType, int)
+    assert isinstance(rsaKeySize, int)
+    assert isinstance(n, int)
+    assert isinstance(d, int)
+
+    # calc hash digest
+    digest = utils.doDigest(hashType, datas)
+    logger.debug(f"len(digest) = {len(digest)}")
+    # do padding
+    if hashType == common.HASH_CODE.SHA256.value:
+        paddingDigest = b"\x00\x01"
+        paddingDigest += b'\xff'*(
+                int(rsaKeySize/8)
+                -len(common.SHA256_DIGEST_INFO)
+                -common.SHA256_DIGEST_SIZE
+                -3)
+        paddingDigest += b'\x00'
+        paddingDigest += common.SHA256_DIGEST_INFO
+        paddingDigest += digest
+        logger.debug(f"len(paddingDigest) = {len(paddingDigest)}")
+        assert len(paddingDigest) == int(rsaKeySize/8)
+    else:
+        logging.error(f"unsupported hash type {hashType}")
+    
+    # sign with private key
+    paddingDigestInt = int.from_bytes(paddingDigest, byteorder='big')
+    signatureInt = pow(paddingDigestInt, d, n)
+    signature = int.to_bytes(signatureInt, length=int(rsaKeySize/8), byteorder='big')
+    return signature
+
 
 class ChallengeBody(Body):
     """from server to client
@@ -56,7 +90,7 @@ class ChallengeBody(Body):
 
 # auth type
 class AT(Enum):
-    PUB_KEY = 1
+    HS_PUBKEY = 1
     SEC_KEY = 2
 
 class ChallengeAnswerBody(Body):
@@ -65,59 +99,56 @@ class ChallengeAnswerBody(Body):
     def __init__(self):
         pass
 
-    def setVals(self, challengeBody, handleID, handleIndex, 
-            authType, secretKey=b'', 
-            privateKeyContent=b'', privateKeyPasswd=b''):
-        assert isinstance(challengeBody, ChallengeBody) 
-        assert isinstance(authType, int)
+    def setVals(self, handleID, handleIndex, 
+            authType, answer=b''):
         assert isinstance(handleID, bytes)
         assert isinstance(handleIndex, int)
+        assert isinstance(authType, int)
+        assert isinstance(answer, bytes)
 
-        self.challengeBody = challengeBody
-        self.authType = authType
         self.handleID = handleID
         self.handleIndex = handleIndex
-        self.secretKey = secretKey
-        self.privateKeyContent = privateKeyContent 
-        self.privateKeyPasswd = privateKeyPasswd
-        self._generateAnswer()
+        self.authType = authType
+        self.answer = answer
     
-    def _generateAnswer(self):
+    @classmethod
+    def generateAnswer(cls, challengeBody, authType, secretKey=b'', 
+            privateKeyContent=b'', privateKeyPasswd=b''):
         """Util.decrypt
         Util.getPrivateKeyFromBytes
         """
-        if self.authType == AT.PUB_KEY.value:
-            encryptionType = utils.u32(self.privateKeyContent)
+        if authType == AT.HS_PUBKEY.value:
+            encryptionType = utils.u32(privateKeyContent)
             if encryptionType == common.ENCRYPT_NONE:
-                data = self.privateKeyContent[4:] # todo
+                data = privateKeyContent[4:] # todo
             elif encryptionType == common.ENCRYPT_PBKDF2_AES_CBC_PKCS5:
                 offset = 4
-                salt = utils.unpackByteArray(self.privateKeyContent[offset:])
+                salt = utils.unpackByteArray(privateKeyContent[offset:])
                 offset += 4 + len(salt)
 
-                iterations = utils.u32(self.privateKeyContent[offset:])
+                iterations = utils.u32(privateKeyContent[offset:])
                 offset += 4
 
-                keyLength = utils.u32(self.privateKeyContent[offset:]) # in bits
+                keyLength = utils.u32(privateKeyContent[offset:]) # in bits
                 offset += 4
                 secKey = hashlib.pbkdf2_hmac("sha1", 
-                    self.privateKeyPasswd, salt, iterations, keyLength/8)
-                iv = utils.unpackByteArray(self.privateKeyContent[offset:])
+                    privateKeyPasswd, salt, iterations, keyLength/8)
+                iv = utils.unpackByteArray(privateKeyContent[offset:])
                 offset += 4 + len(iv)
-                ciphertext = utils.unpackByteArray(self.privateKeyContent[offset:])
+                ciphertext = utils.unpackByteArray(privateKeyContent[offset:])
                 offset += 4 + len(ciphertext)
-                assert(offset == len(self.privateKeyContent))
+                assert(offset == len(privateKeyContent))
 
-                logger.debug(f"salt : {salt.hex()}")
-                logger.debug(f"iterations : {iterations}")
-                logger.debug(f"key len : {keyLength}")
-                logger.debug(f"seckey : {secKey.hex()}({len(secKey)})")
-                logger.debug(f"iv : {iv.hex()}({len(iv)})")
-                logger.debug(f"cipher text : {ciphertext.hex()}")
+                # logger.debug(f"salt : {salt.hex()}")
+                # logger.debug(f"iterations : {iterations}")
+                # logger.debug(f"key len : {keyLength}")
+                # logger.debug(f"seckey : {secKey.hex()}({len(secKey)})")
+                # logger.debug(f"iv : {iv.hex()}({len(iv)})")
+                # logger.debug(f"cipher text : {ciphertext.hex()}")
 
                 cipher = AES.new(secKey, AES.MODE_CBC, iv)
                 data = cipher.decrypt(ciphertext)
-                logger.debug(f"data : {data.hex()}")
+                # logger.debug(f"data : {data.hex()}")
             # elif encryptionType == common.ENCRYPT_DES_CBC_PKCS5:
 
             # elif encryptionType == common.ENCRYPT_AES_CBC_PKCS5:
@@ -143,6 +174,7 @@ class ChallengeAnswerBody(Body):
                 d = int.from_bytes(d, byteorder='big')
             elif keyType == common.KEY_ENCODING_RSACRT_PRIVATE:
                 n = utils.unpackByteArray(data[offset:])
+                rsaKeySize = (len(n) & ~0xf)*8
                 offset += 4 + len(n)
                 pubEx = utils.unpackByteArray(data[offset:])
                 offset += 4 + len(pubEx)
@@ -176,28 +208,41 @@ class ChallengeAnswerBody(Body):
             sigID = b"SHA256withRSA"
             sigHashType = b"SHA-256"
             
-            challengeDigest = int.from_bytes(utils.doDigest(
-                    common.HASH_CODE.SHA256.value, [
-                        self.challengeBody.nonce, self.challengeBody.digest.pack()
-                    ]
-                ), byteorder='big'
-            )
-            logger.debug(f"challengeDigest : {hex(challengeDigest)}")
-            tmp = pow(challengeDigest, d, n)
-            signature = int.to_bytes(tmp, length=256, byteorder='big')
+            logger.debug(f"nonce :\n{utils.hexdump(challengeBody.nonce)}")
+            logger.debug(f"req digest : {utils.hexdump(challengeBody.digest.pack())}")
+
+            datas = [challengeBody.nonce, challengeBody.digest.pack()]
+            signature = rsaDigestSign(
+                datas, common.HASH_CODE.SHA256.value,
+                rsaKeySize, n, d)
             logger.debug(f"signature : {signature.hex()}({len(signature)})")
             answer = b''
             answer += utils.packByteArray(sigHashType)
             answer += utils.packByteArray(signature)
-        elif self.authType == AT.SEC_KEY.value:
-            logger.error(f"unsupport auth type {self.authType:#x}")
+        elif authType == AT.SEC_KEY.value:
+            logger.error(f"unsupport auth type {authType:#x}")
         else:
-            logger.error(f"unsupport auth type {self.authType:#x}")
-        self.answer = answer
+            logger.error(f"unsupport auth type {authType:#x}")
+        return answer
+
+    def _parseAnswer(self):
+        offset = 0
+        payload = self.answer
+
+        sigHashType = utils.unpackByteArray(payload[offset:])
+        offset += 4 + len(sigHashType)
+        logger.debug(f"sigHashType : {sigHashType}")
+
+        signature = utils.unpackByteArray(payload[offset:])
+        offset += 4 + len(signature)
+        logger.debug(f"signature : {signature.hex()}({len(signature)})")
+        
+
+        
 
     def pack(self):
         payload = b''
-        if self.authType == AT.PUB_KEY.value:
+        if self.authType == AT.HS_PUBKEY.value:
             payload += utils.packByteArray(b"HS_PUBKEY")
         else:
             logger.critical(f"unsupport auth type {self.authType}")
@@ -205,6 +250,30 @@ class ChallengeAnswerBody(Body):
         payload += utils.p32(self.handleIndex)
         payload += utils.packByteArray(self.answer)
         return payload
+    
+    @classmethod
+    def parse(cls, payload):
+        assert isinstance(payload, bytes)
+        offset = 0
+
+        authTypeStr = utils.unpackByteArray(payload[offset:])
+        offset += 4 + len(authTypeStr)
+        logger.debug(f"authTypeStr : {authTypeStr}")
+        authType = AT.HS_PUBKEY.value
+
+        handleID = utils.unpackByteArray(payload[offset:])
+        offset += 4 + len(handleID)
+        handleIndex = utils.u32(payload[offset:])
+        offset += 4
+
+        answer = utils.unpackByteArray(payload[offset:])
+        offset += 4 + len(answer)
+
+        cab = ChallengeAnswerBody()
+        cab.setVals(handleID, handleIndex, authType, answer)
+
+        return cab
+
 
     def __str__(self):
         res = "challenge answer body :\n"
@@ -217,20 +286,19 @@ r"""
 src\main\java\net\handle\server\servletcontainer\auth\StandardHandleAuthenticator.java
 constructSignedResponse
 """
-def doAuth(sockfd, challengeMessage, handleID,
+def doAuth(serverAddr, challengeMessage, handleID,
             handleIndex, authType, secretKey=b'', privateKeyContent =b'',
             privateKeyPasswd=b''):
     """do auth, return session id
     """
-    assert isinstance(sockfd, socket.socket)
     assert isinstance(challengeMessage, Message)
-
+    challengeMessage.body = ChallengeBody.parse(challengeMessage.body.pack())
     sessionID = challengeMessage.evp.sessionID
-    # challengeBody = challengeMessage.body
 
     cab = ChallengeAnswerBody()
-    cab.setVals(challengeMessage.body, handleID,
-        handleIndex, authType, secretKey, privateKeyContent, privateKeyPasswd)
+    cab.setVals(handleID, handleIndex, authType)
+    cab.answer = cab.generateAnswer(
+            challengeMessage.body, authType, secretKey, privateKeyContent, privateKeyPasswd)
 
     msg = Message()
     msg.evp.setMessageFlag(0)
@@ -240,8 +308,7 @@ def doAuth(sockfd, challengeMessage, handleID,
     msg.header.setOpCode(Header.OC.OC_CHALLENGE_RESPONSE .value)
     msg.header.setOpFlag(Header.OPF.OPF_CT.value 
             | Header.OPF.OPF_REC.value 
-            | Header.OPF.OPF_CA.value 
-            | Header.OPF.OPF_PO.value)
+            | Header.OPF.OPF_CA.value )
     msg.header.setSiteInfoSerialNumber(6)
     msg.header.setRecursionCount(0)
     msg.header.setExpirationTime(int(time.time() + 3600 * 3))
@@ -251,14 +318,21 @@ def doAuth(sockfd, challengeMessage, handleID,
     logger.debug(str(msg))
 
     payload = msg.pack()
-
-    cnt = sockfd.send(payload)
-    logger.debug(f"send res : {cnt}")
+    logger.info(f"do auth request")
+    logger.debug(str(msg))
+    sock_tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock_tcp.connect(serverAddr)
+    _cnt = sock_tcp.send(payload)
+    logger.debug(f"send res : {_cnt}")
 
     res = b''
-    while len(tmp := sockfd.recv(0x100)) != 0:
+    while len(tmp := sock_tcp.recv(0x100)) != 0:
         res += tmp
     logger.debug(f"reslen : {len(res)}")
     resp = Message.parse(res)
+    logger.info("do auth response")
     logger.debug(str(resp))
+    sock_tcp.close()
+    return resp
+
 

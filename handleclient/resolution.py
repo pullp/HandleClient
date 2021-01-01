@@ -57,7 +57,6 @@ The Message Body for any query request is defined as follows:
         values regardless of their data type.
 """
 
-# 如果别的respone结构和这个类似(可以复用), 就把这个类放到response.py中(记得改个名字)
 class ResolutionRequestBody(Body):
     def __init__(self):
         self.handle     = b''
@@ -148,7 +147,7 @@ class ResolutionRequestBody(Body):
         return res
 
 
-class ResolutionResponseBody():
+class ResolutionResponseBody(Body):
     def __init__(self):
         self.handle = None
         self.valueList = []

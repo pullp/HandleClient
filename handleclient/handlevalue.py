@@ -39,7 +39,7 @@ class Reference(object):
         offset = 0
         ref.handle = utils.unpackByteArray(payload[offset:])
         offset += 4 + len(ref.handle)
-        ref.index = utils.unpack(payload[offset:])
+        ref.index = utils.u32(payload[offset:])
         offset += 4
         return ref
 
@@ -97,7 +97,7 @@ class HandleValue(object):
         assert isinstance(permission, int)
         assert isinstance(timestamp, int)
         assert isinstance(refs, list)
-        assert all(isinstance(item, bytes) for item in refs)
+        assert all(isinstance(item, Reference) for item in refs)
 
         self.valueType  = valueType
         self.index      = index & 0xffffffff
@@ -110,6 +110,7 @@ class HandleValue(object):
         self.timestamp  = timestamp & 0xffffffff
         # self.timestamp  = timestamp & 0xffffffffffffffff 
         self.refs = refs
+        # logger.debug(f"self.refs cnt : {len(self.refs)}")
 
         # self.value      = None # parse from self.data
 
@@ -164,6 +165,7 @@ class HandleValue(object):
             ref = Reference.parse(payload[offset:])
             offset += refLen
             refs.append(ref)
+            logger.debug(str(ref))
         assert offset == len(payload)
         
         valueType = valueType.upper()
@@ -226,11 +228,11 @@ class HandleValue(object):
         res += f" timestamp : {utils.formatTimestamp(self.timestamp)}({self.timestamp})\n"
         res += f" references:\n"
         for ref in self.refs:
-            res == "  " + str(ref) + '\n'
+            res += "  " + str(ref) + '\n'
         return res[:-1]
 
     @staticmethod
-    def calcHandleValueSize(payload: bytes, offset: int) -> int:
+    def calcHandleValueSize(payload: bytes, offset: int = 0) -> int:
         """Calculate the number of bytes required to store the specified value
         """
         assert isinstance(payload, bytes)
