@@ -10,6 +10,7 @@ from handleclient import message
 from handleclient import request
 from handleclient import response
 from handleclient import handlevalue
+from handleclient import auth
 
 from handleclient.handlevalue import HandleValue
 from handleclient.message import Message, Envelope, Header, Body, Credential
@@ -18,44 +19,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(common.LOG_LEVEL)
 logger.addHandler(common.ch)
 
-"""
-The Message Header of any query request must set its <OpCode> to
-OC_RESOLUTION (defined in section 2.2.2.1) and <ResponseCode> to 0.
-
-The Message Body for any query request is defined as follows:
-
-    <Message Body of Query Request>  ::=  <Handle>
-                                        <IndexList>
-                                        <TypeList>
-
-        where
-
-        <Handle>
-        A UTF8-String (as defined in section 2.1.4) that specifies
-        the handle to be resolved.
-
-        <IndexList>
-        A 4-byte unsigned integer followed by an array of 4-byte
-        unsigned integers.  The first integer indicates the number
-        of integers in the integer array.  Each number in the
-        integer array is a handle value index and refers to a handle
-        value to be retrieved.  The client sets the first integer to
-        zero (followed by an empty array) to ask for all the handle
-        values regardless of their index.
-
-        <TypeList>
-        A 4-byte unsigned integer followed by a list of UTF8-
-        Strings.  The first integer indicates the number of
-        UTF8-Strings in the list that follows.  Each UTF8-String in
-        the list specifies a data type.  This tells the server to
-        return all handle values whose data type is listed in the
-        list.  If a UTF8-String ends with the '.' (0x2E) character,
-        the server must return all handle values whose data type is
-        under the type hierarchy specified in the UTF8-String.  The
-        <TypeList> may contain no UTF8-String if the first integer
-        is 0.  In this case, the server must return all handle
-        values regardless of their data type.
-"""
 
 class ResolutionRequestBody(Body):
     def __init__(self):
@@ -64,30 +27,6 @@ class ResolutionRequestBody(Body):
         self.typeList   = []
         
     def setVals(self, handle, indexList, typeList):
-        """handle(unicode):
-            A UTF8-String (as defined in section 2.1.4) that specifies
-            the handle to be resolved.
-        indexList(int list):
-            A 4-byte unsigned integer followed by an array of 4-byte
-            unsigned integers.  The first integer indicates the number
-            of integers in the integer array.  Each number in the
-            integer array is a handle value index and refers to a handle
-            value to be retrieved.  The client sets the first integer to
-            zero (followed by an empty array) to ask for all the handle
-            values regardless of their index.
-        indexList(unicode list): 
-            A 4-byte unsigned integer followed by a list of UTF8-
-            Strings.  The first integer indicates the number of
-            UTF8-Strings in the list that follows.  Each UTF8-String in
-            the list specifies a data type.  This tells the server to
-            return all handle values whose data type is listed in the
-            list.  If a UTF8-String ends with the '.' (0x2E) character,
-            the server must return all handle values whose data type is
-            under the type hierarchy specified in the UTF8-String.  The
-            <TypeList> may contain no UTF8-String if the first integer
-            is 0.  In this case, the server must return all handle
-            values regardless of their data type.
-        """
         assert isinstance(handle, bytes)
         assert isinstance(indexList, list)
         assert all(isinstance(index, int) for index in indexList)
@@ -101,43 +40,31 @@ class ResolutionRequestBody(Body):
     def pack(self):
         """refer to method `encodeResolutionRequest` in official sourcecode of client written in java
         """
-        payload = b''
-        payload += (pack("!I", len(self.handle)) + self.handle)
-        payload += pack("!I", len(self.indexList))
-        for idx in self.indexList:
-            payload += pack("!I", idx)
-        payload += pack("!I", len(self.typeList))
-        for tp in self.typeList:
-            payload += (pack("!I", len(tp)) + tp)
+        payload = utils.pba(self.handle)
+        payload += utils.p32List(self.indexList)
+        payload += utils.pbaList(self.typeList)
         return payload
     
     @classmethod
     def parse(cls, payload):
         assert isinstance(payload, bytes)
 
-        rrb = ResolutionRequestBody()
+        body = ResolutionRequestBody()
         offset  = 0
-        handleLen   = utils.u32(payload[offset:])
-        offset  += 4
-        rrb.handle = payload[offset:offset+handleLen]
-        offset  += handleLen
-
-        indexListSize = utils.u32(payload[offset:])
-        offset  += 4
-        for _i in range(0, indexListSize):
-            rrb.indexList.append(utils.u32(payload[offset:]))
-            offset  += 4
         
-        typeListSize = utils.u32(payload[offset:])
-        offset  += 4
-        for _i in range(0, typeListSize):
-            typeLen = utils.u32(payload[offset:])
-            offset  += 4
-            rrb.typeList.append(payload[offset:offset+typeLen])
-            offset += typeLen
-        assert offset == len(payload)
+        body.handle = utils.uba(payload[offset:])
+        offset += 4 + len(body.handle)
 
-        return rrb
+        indexList, used = utils.u32List(payload[offset:])
+        offset += used
+        body.indexList = indexList
+        
+        typeList, used = utils.ubaList(payload[offset:])
+        offset += used
+        body.typeList = typeList
+
+        assert offset == len(payload)
+        return body
 
     def __str__(self):
         res = "ResolutionRequestBody:\n"
@@ -152,29 +79,34 @@ class ResolutionResponseBody(Body):
         self.handle = None
         self.valueList = []
         self.requestDigest = None
+        self.bodyRaw = b''
 
     @classmethod
-    def parse(cls, body):
-        assert isinstance(body, bytes)
-        rrb = ResolutionResponseBody()
+    def parse(cls, payload):
+        assert isinstance(payload, bytes)
+        body = ResolutionResponseBody()
+        body.bodyRaw = payload
         offset = 0
-        rrb.handle = utils.unpackByteArray(body[offset:])
-        offset += 4 + len(rrb.handle)
-        # logger.debug(f"handle : {rrb.handle}({len(rrb.handle)})")
-        # logger.debug(f"offset : {offset}/{len(body)}")
-        if (valueCnt := utils.u32(body[offset:])) \
+        body.handle = utils.uba(payload[offset:])
+        offset += 4 + len(body.handle)
+        # logger.debug(f"handle : {body.handle}({len(body.handle)})")
+        # logger.debug(f"offset : {offset}/{len(payload)}")
+        if (valueCnt := utils.u32(payload[offset:])) \
             > common.MAX_HANDLE_VALUES:
             raise Exception(f"invalid valueCnt : {valueCnt}")
         offset += 4
         logger.debug(f"valueCnt: {valueCnt}")
         for _i in range(valueCnt):
-            valueLen = HandleValue.calcHandleValueSize(body, offset)
-            hv = HandleValue.parse(body[offset:offset+valueLen])
+            valueLen = HandleValue.calcHandleValueSize(payload, offset)
+            hv = HandleValue.parse(payload[offset:offset+valueLen])
             # logger.debug(str(hv))
             offset += valueLen
-            rrb.valueList.append(hv)
-        assert offset == len(body)
-        return rrb
+            body.valueList.append(hv)
+        assert offset == len(payload)
+        return body
+
+    def pack(self):
+        return self.bodyRaw
 
     def __str__(self):
         res = super().__str__()+'\n'
@@ -183,18 +115,76 @@ class ResolutionResponseBody(Body):
             res += f"{str(value)}\n\n"
         return res
 
+def resolution(serverAddr, handle, indexList=[], typeList=[],
+        # auth args
+        handleID=b'', 
+        handleIndex=0, authType=0,
+        secretKey=b'', privateKeyContent =b'',
+        privateKeyPasswd=b'',
+        # message fields
+        requestID = 0, sessionID=0,
+        messageFlag = 0,
+        opFlag = common.OPF.REC.value 
+            | common.OPF.CA.value 
+            | common.OPF.PO.value,
+        siteInfoSerialNumber = 1,
+        recursionCount = 0,
+        expirationDelay = 3):
+    resp = resolutionWithoutAuth(serverAddr, indexList, typeList,
+        requestID = requestID,
+        sessionID = sessionID,
+        messageFlag = messageFlag,
+        opFlag = opFlag,
+        siteInfoSerialNumber = siteInfoSerialNumber,
+        recursionCount = recursionCount,
+        expirationDelay = expirationDelay)
+    if (rc := resp.header.responseCode) == common.RC.SUCCESS:
+        resp.body = ResolutionResponseBody.parse(resp.body.pack())
+        logger.info("resolution success")
+    elif rc == common.RC.AUTHEN_NEEDED.value:
+        resp, sockTCP = auth.doAuth(serverAddr, resp, handleID, handleIndex,
+            authType, secretKey, privateKeyContent, privateKeyPasswd)
+        sockTCP.close()
+    else:
+        logger.warning(f"unimplemented response parser : {rc:#x}")
+    return resp
+    
+
+def resolutionWithoutAuth(serverAddr, handle, indexList=[], typeList=[],
+        # message fields
+        requestID = 0, sessionID=0,
+        messageFlag = 0,
+        opFlag = common.OPF.REC.value 
+            | common.OPF.CA.value 
+            | common.OPF.PO.value,
+        siteInfoSerialNumber = 1,
+        recursionCount = 0,
+        expirationDelay = 3):
+    body = ResolutionRequestBody()
+    body.setVals(handle, indexList, typeList)
+    resp = request.doRequest(
+        serverAddr, body, opCode=common.OC.RESOLUTION.value,
+        requestID = requestID,
+        sessionID = sessionID,
+        messageFlag = messageFlag,
+        opFlag = opFlag,
+        siteInfoSerialNumber = siteInfoSerialNumber,
+        recursionCount = recursionCount,
+        expirationDelay = expirationDelay)
+    return resp
+
 def simpleResolutionTest(handle, serverAddr=''):
     assert isinstance(handle, bytes)
 
     # construct payload
     msg = Message()
-    msg.evp.setRequestId(0x1235)
+    msg.evp.setRequestID(0x1235)
 
-    msg.header.setOpCode(Header.OC.OC_RESOLUTION.value)
-    msg.header.setOpFlag(Header.OPF.OPF_CT.value 
-            | Header.OPF.OPF_REC.value 
-            | Header.OPF.OPF_CA.value 
-            | Header.OPF.OPF_PO.value)
+    msg.header.setOpCode(common.OC.RESOLUTION.value)
+    msg.header.setOpFlag(common.OPF.CT.value 
+            | common.OPF.REC.value 
+            | common.OPF.CA.value 
+            | common.OPF.PO.value)
     msg.header.setSiteInfoSerialNumber(6)
     msg.header.setRecursionCount(0)
     msg.header.setExpirationTime(int(time.time() + 3600*3))
@@ -223,19 +213,19 @@ def simpleResolutionTest(handle, serverAddr=''):
     # res = open("./traffics/res.tmp", "rb").read()
     logger.debug(f"reslen : {len(res)}\n")
     resp = Message.parse(res)
-    if (rc := resp.header.responseCode) == Header.RC.RC_SUCCESS.value:
+    if (rc := resp.header.responseCode) == common.RC.SUCCESS.value:
         resp.body = ResolutionResponseBody.parse(resp.body.pack())
-    elif rc == Header.RC.RC_HANDLE_NOT_FOUND.value \
-        or rc == Header.RC.RC_SERVER_NOT_RESP.value \
-        or rc == Header.RC.RC_SERVER_BUSY.value \
-        or rc == Header.RC.RC_ACCESS_DENIED.value:
+    elif rc == common.RC.HANDLE_NOT_FOUND.value \
+        or rc == common.RC.SERVER_NOT_RESP.value \
+        or rc == common.RC.SERVER_BUSY.value \
+        or rc == common.RC.ACCESS_DENIED.value:
         resp.body = response.ErrorResponseBody().parse(resp.body.pack())
-    elif rc == Header.RC.RC_SERVICE_REFERRAL.value:
+    elif rc == common.RC.SERVICE_REFERRAL.value:
         # parse referral
         logger.warning(f"parse referral type todo")
         pass
-    elif rc == Header.RC.RC_AUTHEN_NEEDED.value \
-        and (resp.header.opFlag & Header.OPF.OPF_RD.value == 1):
+    elif rc == common.RC.AUTHEN_NEEDED.value \
+        and (resp.header.opFlag & common.OPF.RD.value == 1):
         logger.warning(f"parse auth type todo")
     else:
         logger.warning(f"unsupport resolution response")

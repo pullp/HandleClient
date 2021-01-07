@@ -8,6 +8,7 @@ from datetime import datetime
 # from struct import pack, unpack
 
 from handleclient import common
+from handleclient.handlevalue import HandleValue
 
 logger = logging.getLogger(__name__)
 logger.setLevel(common.LOG_LEVEL)
@@ -30,12 +31,59 @@ def u64(payload):
     assert isinstance(payload, bytes)
     return struct.unpack("!Q", payload[:8])[0]
 
-def unpackByteArray(payload: bytes) -> bytes:
+def uba(payload: bytes) -> bytes:
     """unpack utf8 byte array from payload
     """
     assert isinstance(payload, bytes)
     strLen = u32(payload)
     return payload[4:4+strLen]
+
+def u32List(payload):
+    assert isinstance(payload, bytes)
+    indexList = []
+    offset = 0
+
+    indexCount = u32(payload[offset:])
+    offset += 4
+
+    for _i in range(indexCount):
+        index = u32(payload[offset:])
+        offset += 4
+        indexList.append(index)
+    
+    return indexList, offset
+
+
+def unpackValueList(payload):
+    assert isinstance(payload, bytes)
+    valueList = []
+    offset = 0
+    
+    valueCount = u32(payload[offset:])
+    offset += 4
+
+    for _i in range(valueCount):
+        valueSize = HandleValue.calcHandleValueSize(payload[offset:])
+        value = HandleValue.parse(payload[offset:offset+valueSize])
+        offset += valueSize
+        valueList.append(value)
+    
+    return valueList, offset
+
+def ubaList(payload):
+    assert isinstance(payload, bytes)
+
+    baList = []
+    offset = 0
+    
+    baCount = u32(payload[offset:])
+    offset += 4
+
+    for _i in range(baCount):
+        ba = uba(payload[offset:])
+        offset += 4 + len(ba)
+        baList.append(ba)
+    return (baList, offset)
 
 # pack int to bytes
 def p8(val):
@@ -54,12 +102,35 @@ def p64(val):
     assert isinstance(val, int)
     return struct.pack("!Q", val)
 
-def packByteArray(arr: bytes) -> bytes:
-    assert isinstance(arr, bytes)
+def pba(ba: bytes) -> bytes:
+    assert isinstance(ba, bytes)
     payload = b''
-    payload += p32(len(arr))
-    payload += arr
+    payload += p32(len(ba))
+    payload += ba
     return payload
+
+def packValueList(valueList):
+    payload = p32(len(valueList))
+    for value in valueList:
+        payload += value.pack()
+    return payload
+
+def p32List(indexList):
+    payload = p32(len(indexList))
+    for index in indexList:
+        payload += p32(index)
+    return payload
+
+def pbaList(baList):
+    assert isinstance(baList, list)
+    assert all(isinstance(ba, bytes) for ba in baList)
+
+    payload = p32(len(baList))
+    for ba in baList:
+        payload += pba(ba)
+    return payload
+
+
 
 def printableFlags(flagsEnum, flag) -> str:
     """
@@ -143,32 +214,3 @@ def hexdump(payload, mod=16):
             l += f" {payload[i+j]:02X}"
         res += l + '\n'
     return res
-
-################################################################
-# below codes are just for fun XD
-################################################################
-
-import os
-
-def countLine(suffixes=[".py"]):
-    g = os.walk(".")
-    files = []
-    for path, _dirList, fileList in g:
-        for fileName in fileList:
-            # if fileName.endswith
-            for sufix in suffixes:
-                if fileName.endswith(sufix):
-                    print(fileName)
-                    files.append(os.path.join(path, fileName))
-    print(files)
-    totalCnt = 0
-    for file in files:
-        lines = open(file, 'r', encoding='utf8').readlines()
-        # print(lines[0])
-        # lineCnt = len([l for l in lines if not l.startswith("#")])
-        lineCnt = len([l for l in lines if len(l) > 10])
-        # lineCnt = len(lines )
-        # del lines
-        totalCnt += lineCnt
-        print(f"{file}({lineCnt} lines); totoal {totalCnt} lines")
-

@@ -21,7 +21,7 @@ logger.setLevel(common.LOG_LEVEL)
 logger.addHandler(common.ch)
 
 
-class AddValueRequestBody(Body):
+class ModifyValueRequestBody(Body):
     def __init__(self):
         self.handle = b''
         self.valueList = []
@@ -42,7 +42,7 @@ class AddValueRequestBody(Body):
     @classmethod
     def parse(cls, payload):
         assert isinstance(payload, bytes)
-        body = AddValueRequestBody()
+        body = ModifyValueRequestBody()
         offset = 0
 
         handle = utils.uba(payload[offset:])
@@ -55,7 +55,7 @@ class AddValueRequestBody(Body):
         
         assert offset == len(payload)
         return body
-
+    
     def __str__(self):
         res = ""
         res += f"handle : {self.handle}\n"
@@ -65,7 +65,7 @@ class AddValueRequestBody(Body):
         return res
 
 
-def addValue(serverAddr, handle, valueList,
+def modifyValue(serverAddr, handle, valueList,
         # auth args
         handleID=b'', 
         handleIndex=0, authType=0,
@@ -81,7 +81,7 @@ def addValue(serverAddr, handle, valueList,
         recursionCount = 0,
         expirationDelay = 3):
 
-    resp = addValueWithoutAuth(serverAddr, handle, valueList,
+    resp = modifyValueWithoutAuth(serverAddr, handle, valueList,
         requestID = requestID,
         sessionID = sessionID,
         messageFlag = messageFlag,
@@ -91,7 +91,7 @@ def addValue(serverAddr, handle, valueList,
         expirationDelay = expirationDelay)
 
     if (rc := resp.header.responseCode) == common.RC.SUCCESS:
-        logger.info(f"add value success")
+        logger.info(f"modify value success")
     elif rc == common.RC.PREFIX_REFERRAL.value:
         resp.body = response.ReferralResponseBody.parse(resp.body.pack())
     elif rc == common.RC.AUTHEN_NEEDED.value:
@@ -103,7 +103,7 @@ def addValue(serverAddr, handle, valueList,
     return resp
 
 
-def addValueWithoutAuth(serverAddr, handle, valueList,
+def modifyValueWithoutAuth(serverAddr, handle, valueList,
         # message fields
         requestID = 0, sessionID=0,
         messageFlag = 0,
@@ -113,11 +113,12 @@ def addValueWithoutAuth(serverAddr, handle, valueList,
         siteInfoSerialNumber = 1,
         recursionCount = 0,
         expirationDelay = 3):
-    """just care about add value things, if need auth, it will return.
+    """just care about modify value things, if need auth, it will return.
     """
-    body = AddValueRequestBody()
+    body = ModifyValueRequestBody()
     body.setVals(handle, valueList)
-    resp = request.doRequest(serverAddr, body, opCode=common.OC.ADD_VALUE.value,
+    resp = request.doRequest(serverAddr, body, 
+        opCode=common.OC.MODIFY_VALUE.value,
         requestID = requestID,
         sessionID = sessionID,
         messageFlag = messageFlag,

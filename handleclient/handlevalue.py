@@ -1,4 +1,3 @@
-from enum import Enum
 from struct import pack, unpack
 import logging
 
@@ -37,14 +36,14 @@ class Reference(object):
         assert isinstance(payload, bytes)
         ref = Reference()
         offset = 0
-        ref.handle = utils.unpackByteArray(payload[offset:])
+        ref.handle = utils.uba(payload[offset:])
         offset += 4 + len(ref.handle)
         ref.index = utils.u32(payload[offset:])
         offset += 4
         return ref
 
     def pack(self):
-        payload = utils.packByteArray(self.handle) + utils.p32(self.index)
+        payload = utils.pba(self.handle) + utils.p32(self.index)
         # payload += utils.p32(len(self.handle)) + self.handle
         # payload += utils.p32(len(self.index))
         return payload
@@ -66,18 +65,6 @@ class Reference(object):
 class HandleValue(object):
     """https://tools.ietf.org/html/rfc3651#section-3.1
     """
-    # permission
-    class PERM(Enum):
-        PUBLIC_WRITE    = 1
-        PUBLIC_READ     = 1 << 1
-        ADMIN_WRITE     = 1 << 2
-        ADMIN_READ      = 1 << 3
-        # PUBLIC_EXECUTE  = 1 << 4
-        # ADMIN_EXECUTE   = 1 << 5
-
-    class TTLType(Enum):
-        RELA = 0 # relative
-        ABS = 1 # absolute
 
     def __init__(self):
         self.valueType  = b''
@@ -151,10 +138,10 @@ class HandleValue(object):
         permission  = utils.u8(payload[offset:])
         offset += 1
 
-        valueType  = utils.unpackByteArray(payload[offset:])
+        valueType  = utils.uba(payload[offset:])
         offset += 4 + len(valueType)
 
-        data  = utils.unpackByteArray(payload[offset:])
+        data  = utils.uba(payload[offset:])
         offset += 4 + len(data)
 
         refs = []
@@ -223,8 +210,8 @@ class HandleValue(object):
         res = "HandleValue:\n"
         res += f" type : {self.valueType.decode()}\n"
         res += f" index : {self.index}\n"
-        res += f" TTL   : {self.ttl}({utils.printableCode(HandleValue.TTLType, self.ttlType)})\n"
-        res += f" permission : {utils.printableFlags(HandleValue.PERM, self.permission)} ({self.permission:#x})\n"
+        res += f" TTL   : {self.ttl}({utils.printableCode(common.HV_TTLTYPE, self.ttlType)})\n"
+        res += f" permission : {utils.printableFlags(common.HV_PERM, self.permission)} ({self.permission:#x})\n"
         res += f" timestamp : {utils.formatTimestamp(self.timestamp)}({self.timestamp})\n"
         res += f" references:\n"
         for ref in self.refs:
@@ -269,16 +256,6 @@ class HandleValue(object):
 
 
 class ServiceInterface(object):
-    class ServiceType(Enum):
-        ADMIN = 1 # handle administration
-        QUERY = 2 # handle resolution
-        BOTH = 3
-
-    class Protocol(Enum):
-        UDP = 0
-        TCP = 1
-        HTTP = 2
-    
     def __init__(self):
         self.serviceType = None
         self.protocol = None
@@ -296,7 +273,7 @@ class ServiceInterface(object):
         logger.warning("todo")
 
     def __str__(self):
-        res = f"interface : {utils.printableCode(ServiceInterface.ServiceType, self.serviceType)} {utils.printableCode(ServiceInterface.Protocol, self.protocol)} {self.portNumber:d}"
+        res = f"interface : {utils.printableCode(common.SI_TYPE, self.serviceType)} {utils.printableCode(common.SI_PROTOCOL, self.protocol)} {self.portNumber:d}"
         return res
 
 class ServerRecord(object):
@@ -407,11 +384,6 @@ class HS_SITE(HandleValue):
 
         self.servers = []
     
-    # primary mask
-    class PM(Enum):
-        IS_PRIMARY = 0x80
-        MULTI_PRIMARY = 0x40
-    
     def setDataVals(self, version, protocolVersion, serialNumber,
                 primaryMask, hashOption, hashFilter, attributeList,
                 servers):
@@ -469,10 +441,10 @@ class HS_SITE(HandleValue):
         offset += 4
 
         for _i in range(attributeCnt):
-            name = utils.unpackByteArray(data[offset:])
+            name = utils.uba(data[offset:])
             offset += 4 + len(name)
 
-            value = utils.unpackByteArray(data[offset:])
+            value = utils.uba(data[offset:])
             offset += 4 + len(value)
             self.attributeList.append((name, value))
         
@@ -484,7 +456,7 @@ class HS_SITE(HandleValue):
             offset += 4
             address = data[offset:offset + common.IPV6_SIZE_IN_BYTES]
             offset += common.IPV6_SIZE_IN_BYTES
-            publicKey = utils.unpackByteArray(data[offset:])
+            publicKey = utils.uba(data[offset:])
             offset += 4 + len(publicKey)
 
             intfCnt = utils.u32(data[offset:])
@@ -525,7 +497,7 @@ class HS_SITE(HandleValue):
         res += f"  data format ersion : {self.version}\n"
         res += f"  protocol version : {self.majorProtocolVersion}.{self.minorProtocolVersion}\n"
         res += f"  serial number : {self.serialNumber}\n"
-        res += f"  primary mask : {utils.printableFlags(HS_SITE.PM, self.primaryMask)}\n"
+        res += f"  primary mask : {utils.printableFlags(common.HS_SITE_PM, self.primaryMask)}\n"
         res += f"  hash option : {self.hashOption}\n"
         res += f"  hash filter : {self.hashFilter.decode()}\n"
         res += f"attribute list:\n"
@@ -538,21 +510,6 @@ class HS_SITE(HandleValue):
 
 
 class HS_ADMIN(HandleValue):
-    class PERM(Enum):
-        ADD_HANDLE      = 0x0001
-        DELETE_HANDLE   = 0x0002
-        ADD_NA          = 0x0004
-        DELETE_NA       = 0x0008
-        MODIFY_VALUD    = 0x0010
-        DELETE_VALU     = 0x0020
-        ADD_VALUE       = 0x0040
-        MODIFY_ADMIN    = 0x0080
-        REMOVE_ADMIN    = 0x0100
-        ADD_ADMIN       = 0x0200
-        AUTHORIZED_READ = 0x0400
-        LIST_HANDLE     = 0x0800
-        LIST_NA         = 0x1000
-
     def __init__(self):
         super().__init__()
         self.adminPermission = 0
@@ -571,7 +528,7 @@ class HS_ADMIN(HandleValue):
         self.adminPermission = utils.u16(data[offset:])
         offset += 2
         
-        self.adminID = utils.unpackByteArray(data[offset:])
+        self.adminID = utils.uba(data[offset:])
         offset += 4 + len(self.adminID)
 
         self.adminIndex = utils.u32(data[offset:])
@@ -587,7 +544,7 @@ class HS_ADMIN(HandleValue):
     def __str__(self):
         res = super().__str__()+'\n'
         res += "data:\n"
-        res += f"  adminPermission : {utils.printableFlags(HS_ADMIN.PERM, self.adminPermission)}\n"
+        res += f"  adminPermission : {utils.printableFlags(common.HS_ADMIN_PERM, self.adminPermission)}\n"
         res += f"  admin ref : {self.adminID.decode()} ({self.adminIndex})"
         return res
 
@@ -635,37 +592,37 @@ class HS_PUBKEY(HandleValue):
         assert isinstance(data, bytes)
         offset = 0
 
-        self.keyType = utils.unpackByteArray(data[offset:])
+        self.keyType = utils.uba(data[offset:])
         offset += 4 + len(self.keyType)
         # unused currently
         self.flags = utils.u16(data[offset:])
         offset += 2
 
         if self.keyType == common.KEY_ENCODING_RSA_PUBLIC:
-            e = utils.unpackByteArray(data[offset:])
+            e = utils.uba(data[offset:])
             offset += 4 + len(e)
-            n = utils.unpackByteArray(data[offset:])
+            n = utils.uba(data[offset:])
             offset += len(n)
             self.e = int.from_bytes(e, byteorder='big')
             self.n = int.from_bytes(n, byteorder='big')
             logger.debug(f"e = {hex(self.e)}")
             logger.debug(f"n = {hex(self.n)}")
         elif self.keyType == common.KEY_ENCODING_DSA_PUBLIC:
-            q = utils.unpackByteArray(data[offset:])
+            q = utils.uba(data[offset:])
             offset += 4 + len(q)
-            p = utils.unpackByteArray(data[offset:])
+            p = utils.uba(data[offset:])
             offset += len(p)
-            g = utils.unpackByteArray(data[offset:])
+            g = utils.uba(data[offset:])
             offset += len(g)
-            y = utils.unpackByteArray(data[offset:])
+            y = utils.uba(data[offset:])
             offset += len(y)
             logger.error("unimplemented")
         elif self.keyType == common.KEY_ENCODING_DH_PUBLIC:
-            y = utils.unpackByteArray(data[offset:])
+            y = utils.uba(data[offset:])
             offset += len(y)
-            p = utils.unpackByteArray(data[offset:])
+            p = utils.uba(data[offset:])
             offset += len(p)
-            g = utils.unpackByteArray(data[offset:])
+            g = utils.uba(data[offset:])
             offset += len(g)
             logger.error("unimplemented")
         else:
@@ -705,7 +662,7 @@ class HS_VLIST(HandleValue):
         refs = []
 
         for _i in range(refCnt):
-            handle = utils.unpackByteArray(data[offset:])
+            handle = utils.uba(data[offset:])
             offset += 4 + len(handle)
             index = utils.u32(data[offset:])
             offset += 4

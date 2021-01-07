@@ -13,7 +13,6 @@ from handleclient import auth
 
 from handleclient.handlevalue import HandleValue
 from handleclient.message import Message, Envelope, Header, Body, Credential
-
 from handleclient.auth import ChallengeBody
 
 logger = logging.getLogger(__name__)
@@ -21,37 +20,37 @@ logger.setLevel(common.LOG_LEVEL)
 logger.addHandler(common.ch)
 
 
-class AddValueRequestBody(Body):
+class RemoveValueRequestBody(Body):
     def __init__(self):
         self.handle = b''
-        self.valueList = []
+        self.indexList = []
     
-    def setVals(self, handle, valueList):
+    def setVals(self, handle, indexList):
         assert isinstance(handle, bytes)
-        assert isinstance(valueList, list)
-        assert all(isinstance(item, HandleValue) for item in valueList)
+        assert isinstance(indexList, list)
+        assert all(isinstance(item, int) for item in indexList)
         self.handle = handle
-        self.valueList = valueList
+        self.indexList = indexList
 
     def pack(self):
         payload = b''
         payload += utils.p32(len(self.handle)) + self.handle
-        payload += utils.packValueList(self.valueList)
+        payload += utils.p32List(self.indexList)
         return payload
     
     @classmethod
     def parse(cls, payload):
         assert isinstance(payload, bytes)
-        body = AddValueRequestBody()
+        body = RemoveValueRequestBody()
         offset = 0
 
         handle = utils.uba(payload[offset:])
         offset += 4 + len(handle)
 
-        valueList, consumed = utils.unpackValueList(payload[offset:])
+        indexList, consumed = utils.u32List(payload[offset:])
         offset += consumed
-        
-        body.setVals(handle, valueList)
+
+        body.setVals(handle, indexList)
         
         assert offset == len(payload)
         return body
@@ -59,13 +58,11 @@ class AddValueRequestBody(Body):
     def __str__(self):
         res = ""
         res += f"handle : {self.handle}\n"
-        res += f"value list:\n"
-        for value in self.valueList:
-            res += f"  {str(value)}\n"
+        res += f"index list: {str(self.indexList)}"
         return res
 
 
-def addValue(serverAddr, handle, valueList,
+def removeValue(serverAddr, handle, indexList,
         # auth args
         handleID=b'', 
         handleIndex=0, authType=0,
@@ -80,8 +77,7 @@ def addValue(serverAddr, handle, valueList,
         siteInfoSerialNumber = 1,
         recursionCount = 0,
         expirationDelay = 3):
-
-    resp = addValueWithoutAuth(serverAddr, handle, valueList,
+    resp = removeValueWithoutAuth(serverAddr, handle, indexList,
         requestID = requestID,
         sessionID = sessionID,
         messageFlag = messageFlag,
@@ -91,7 +87,7 @@ def addValue(serverAddr, handle, valueList,
         expirationDelay = expirationDelay)
 
     if (rc := resp.header.responseCode) == common.RC.SUCCESS:
-        logger.info(f"add value success")
+        logger.info(f"remove value success")
     elif rc == common.RC.PREFIX_REFERRAL.value:
         resp.body = response.ReferralResponseBody.parse(resp.body.pack())
     elif rc == common.RC.AUTHEN_NEEDED.value:
@@ -103,7 +99,7 @@ def addValue(serverAddr, handle, valueList,
     return resp
 
 
-def addValueWithoutAuth(serverAddr, handle, valueList,
+def removeValueWithoutAuth(serverAddr, handle, indexList,
         # message fields
         requestID = 0, sessionID=0,
         messageFlag = 0,
@@ -113,11 +109,12 @@ def addValueWithoutAuth(serverAddr, handle, valueList,
         siteInfoSerialNumber = 1,
         recursionCount = 0,
         expirationDelay = 3):
-    """just care about add value things, if need auth, it will return.
+    """just care about remove value things, if need auth, it will return.
     """
-    body = AddValueRequestBody()
-    body.setVals(handle, valueList)
-    resp = request.doRequest(serverAddr, body, opCode=common.OC.ADD_VALUE.value,
+    body = RemoveValueRequestBody()
+    body.setVals(handle, indexList)
+    resp = request.doRequest(serverAddr, body,
+        opCode=common.OC.REMOVE_VALUE.value,
         requestID = requestID,
         sessionID = sessionID,
         messageFlag = messageFlag,

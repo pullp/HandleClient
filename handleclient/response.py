@@ -21,7 +21,7 @@ class ErrorResponseBody(Body):
     @classmethod
     def parse(self, body):
         assert isinstance(body, bytes)
-        self.errMsg = utils.unpackByteArray(body)
+        self.errMsg = utils.uba(body)
         assert 4 + len(self.errMsg) == len(body)
 
     def __str__(self):

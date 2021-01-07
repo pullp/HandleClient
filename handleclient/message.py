@@ -1,6 +1,6 @@
-from enum import Enum
-from struct import pack, unpack
 import logging
+from struct import pack, unpack
+from enum import Enum
 
 from handleclient import common
 from handleclient import utils
@@ -118,9 +118,9 @@ class Message(object):
 .---------------------------------------------------------------.
 | MajorVersion  | MinorVersion  |       MessageFlag             |
 |---------------------------------------------------------------|
-|               SessionId                                       |
+|               SessionID                                       |
 |---------------------------------------------------------------|
-|               RequestId                                       |
+|               RequestID                                       |
 |---------------------------------------------------------------|
 |               SequenceNumber                                  |
 |---------------------------------------------------------------|
@@ -154,11 +154,6 @@ Bits 3 to 15 are currently reserved and must be set to zero.
 """
 
 class Envelope(object):
-    class MF(Enum):
-        MF_CP   = 1<<15 # MessageFlag:ComPressed
-        MF_EC   = 1<<14 # MessageFlag:EnCrypted
-        MF_TC   = 1<<13 # MessageFlag:TrunCated
-        # MF_USED = MF_CP | MF_EC | MF_TC
     
     def __init__(self):
         self.majorVersion   = common.COMPATIBILITY_MAJOR_VERSION
@@ -170,16 +165,16 @@ class Envelope(object):
         # four-byte unsigned integer
         self.sessionID      = 0
         # four-byte unsigned integer
-        self.requestId      = 0
+        self.requestID      = 0
         # four-byte unsigned integer
         self.sequenceNumber = 0
         # four-byte unsigned integer
         self.messageLength  = 0
 
-    def setVals(self, messageFlag, sessionID, requestId, sequenceNumber, messageLength):
+    def setVals(self, messageFlag, sessionID, requestID, sequenceNumber, messageLength):
         self.messageFlag    = messageFlag
         self.sessionID      = sessionID
-        self.requestId      = requestId
+        self.requestID      = requestID
         self.sequenceNumber = sequenceNumber
         self.messageLength  = messageLength
     
@@ -193,13 +188,13 @@ class Envelope(object):
         assert isinstance(messageFlag, int)
         self.messageFlag = messageFlag
     
-    def setSessionId(self, sessionID):
+    def setSessionID(self, sessionID):
         assert isinstance(sessionID, int)
         self.sessionID = sessionID
     
-    def setRequestId(self, requestId):
-        assert isinstance(requestId, int)
-        self.requestId = requestId
+    def setRequestID(self, requestID):
+        assert isinstance(requestID, int)
+        self.requestID = requestID
     
     def setSequenceNumber(self, sequenceNumber):
         assert isinstance(sequenceNumber, int)
@@ -217,7 +212,7 @@ class Envelope(object):
             self.minorVersion,
             self.messageFlag | (((self.suggestMajorVersion)<<8) | self.suggestMinorVersion),
             self.sessionID,
-            self.requestId,
+            self.requestID,
             self.sequenceNumber,
             self.messageLength
         )
@@ -245,7 +240,7 @@ class Envelope(object):
         evp.suggestMinorVersion = tmp & 0xff
         evp.sessionID      = vals[index]
         index += 1
-        evp.requestId      = vals[index]
+        evp.requestID      = vals[index]
         index += 1
         evp.sequenceNumber = vals[index]
         index += 1
@@ -260,7 +255,7 @@ class Envelope(object):
             "minorVersion"  : self.minorVersion,
             "messageFlag "  : self.messageFlag ,
             "sessionID"     : self.sessionID,
-            "requestId"     : self.requestId,
+            "requestID"     : self.requestID,
             "sequenceNumber": self.sequenceNumber,
             "messageLength" : self.messageLength,
         }
@@ -268,9 +263,9 @@ class Envelope(object):
     def __str__(self):
         res = "Envelope:\n"
         res += f"  version(suggest)      : {self.majorVersion}.{self.minorVersion}({self.suggestMajorVersion}.{self.suggestMinorVersion})\n"
-        res += f"  mesage flag  : {utils.printableFlags(Envelope.MF, self.messageFlag)} ({self.messageFlag:#x})\n"
+        res += f"  mesage flag  : {utils.printableFlags(common.MF, self.messageFlag)} ({self.messageFlag:#x})\n"
         res += f"  session id   : {self.sessionID:#x}\n"
-        res += f"  request id   : {self.requestId:#x}\n"
+        res += f"  request id   : {self.requestID:#x}\n"
         res += f"  sequence no  : {self.sequenceNumber:#x}\n"
         res += f"  message len  : {self.messageLength:#x}"
         return res
@@ -298,79 +293,6 @@ eight fields.
 """
 
 class Header(object):
-
-    # op code
-    # from https://tools.ietf.org/html/rfc3652#section-2.2.2.1
-    class OC(Enum):
-        # 300
-        #  :        { Reserved for handle server administration }
-        # 399
-        OC_RESERVED            =   0 # Reserved
-        OC_RESOLUTION          =   1 # Handle query
-        OC_GET_SITEINFO        =   2 # Get HS_SITE values
-        OC_CREATE_HANDLE       = 100 # Create new handle
-        OC_DELETE_HANDLE       = 101 # Delete existing handle
-        OC_ADD_VALUE           = 102 # Add handle value(s)
-        OC_REMOVE_VALUE        = 103 # Remove handle value(s)
-        OC_MODIFY_VALUE        = 104 # Modify handle value(s)
-        OC_LIST_HANDLE         = 105 # List handles
-        OC_LIST_NA             = 106 # List sub-naming authorities
-        OC_CHALLENGE_RESPONSE  = 200 # Response to challenge
-        OC_VERIFY_RESPONSE     = 201 # Verify challenge response
-        OC_SESSION_SETUP       = 400 # Session setup request
-        OC_SESSION_TERMINATE   = 401 # Session termination request
-        OC_SESSION_EXCHANGEKEY = 402 # Session key exchange
-
-    # response code
-    # https://tools.ietf.org/html/rfc3652#section-2.2.2.2
-    class RC(Enum):
-         RC_RESERVED                = 0   #  Reserved for request
-         RC_SUCCESS                 = 1   #  Success response
-         RC_ERROR                   = 2   #  General error
-         RC_SERVER_BUSY             = 3   #  Server too busy to respond
-         RC_PROTOCOL_ERROR          = 4   #  Corrupted or unrecognizable message
-         RC_OPERATION_DENIED        = 5   #  Unsupported operation
-         RC_RECUR_LIMIT_EXCEEDED    = 6   #  Too many recursions for the request
-         RC_HANDLE_NOT_FOUND        = 100 #  Handle not found
-         RC_HANDLE_ALREADY_EXIST    = 101 #  Handle already exists
-         RC_INVALID_HANDLE          = 102 #  Encoding (or syntax) error
-         RC_VALUE_NOT_FOUND         = 200 #  Value not found
-         RC_VALUE_ALREADY_EXIST     = 201 #  Value already exists
-         RC_VALUE_INVALID           = 202 #  Invalid handle value
-         RC_EXPIRED_SITE_INFO       = 300 #  SITE_INFO out of date
-         RC_SERVER_NOT_RESP         = 301 #  Server not responsible
-         RC_SERVICE_REFERRAL        = 302 #  Server referral
-         RC_PREFIX_REFERRAL             = 303 #  // formerly RC_NA_DELEGATE Naming authority delegation takes place.
-         RC_NOT_AUTHORIZED          = 400 #  Not authorized/permitted
-         RC_ACCESS_DENIED           = 401 #  No access to data
-         RC_AUTHEN_NEEDED           = 402 #  Authentication required
-         RC_AUTHEN_FAILED           = 403 #  Failed to authenticate
-         RC_INVALID_CREDENTIAL      = 404 #  Invalid credential
-         RC_AUTHEN_TIMEOUT          = 405 #  Authentication timed out
-         RC_UNABLE_TO_AUTHEN        = 406 #  Unable to authenticate
-         RC_SESSION_TIMEOUT         = 500 #  Session expired
-         RC_SESSION_FAILED          = 501 #  Unable to establish session
-         RC_NO_SESSION_KEY          = 502 #  No session yet available
-         RC_SESSION_NO_SUPPORT      = 503 #  Session not supported
-         RC_SESSION_KEY_INVALID     = 504 #  Invalid session key
-         RC_TRYING                  = 900 #  Request under processing
-         RC_FORWARDED               = 901 #  Request forwarded to another server
-         RC_QUEUED                  = 902 #  Request queued for later processing
-    
-    # OpFlag
-    # https://tools.ietf.org/html/rfc3652#section-2.2.2.3
-    class OPF(Enum):
-        OPF_AT  = 1 << 31 # AuThoritative bit.
-        OPF_CT  = 1 << 30 # CerTified bit.
-        OPF_ENC = 1 << 29 # ENCryption bit.
-        OPF_REC = 1 << 28 # RECursive bit.
-        OPF_CA  = 1 << 27 # Cache Authentication.
-        OPF_CN  = 1 << 26 # ContiNuous bit.
-        OPF_KC  = 1 << 25 # Keep Connection bit.
-        OPF_PO  = 1 << 24 # Public Only bit.
-        OPF_RD  = 1 << 23 # Request-Digest bit.
-        # OPF_USED    = 0x1ff
-
     def __init__(self):
         """init each member with zero
         """
@@ -470,9 +392,9 @@ class Header(object):
 
     def __str__(self):
         res = "Header:\n"
-        res += f"  opCode           : {utils.printableCode(Header.OC, self.opCode)} ({self.opCode:#x})\n"
-        res += f"  responseCode     : {utils.printableCode(Header.RC, self.responseCode)} ({self.responseCode:#x})\n"
-        res += f"  opFlag           : {utils.printableFlags(Header.OPF, self.opFlag)} ({self.opFlag:#x})\n"
+        res += f"  opCode           : {utils.printableCode(common.OC, self.opCode)} ({self.opCode:#x})\n"
+        res += f"  responseCode     : {utils.printableCode(common.RC, self.responseCode)} ({self.responseCode:#x})\n"
+        res += f"  opFlag           : {utils.printableFlags(common.OPF, self.opFlag)} ({self.opFlag:#x})\n"
         res += f"  siteInfoSerialNumber   : {self.siteInfoSerialNumber:#x}\n"
         res += f"  recursionCount   : {self.recursionCount:#x}\n"
         # res += f"  reserved1      : {self.reserved1:#x}\n"
@@ -566,14 +488,14 @@ class Credential(object):
         payload += utils.p8(self.reserved)
         payload += utils.p16(self.options)
         # signer.handle
-        payload += utils.packByteArray(self.signer[0])
+        payload += utils.pba(self.signer[0])
         # signer.handle_index
         payload += utils.p32(self.signer[1])
-        payload += utils.packByteArray(self.credType)
+        payload += utils.pba(self.credType)
         
         signedInfoPack = b''
-        signedInfoPack += utils.packByteArray(self.signedInfo[0])
-        signedInfoPack += utils.packByteArray(self.signedInfo[1])
+        signedInfoPack += utils.pba(self.signedInfo[0])
+        signedInfoPack += utils.pba(self.signedInfo[1])
         signedInfoPack = utils.p32(len(signedInfoPack)) + signedInfoPack
         payload += signedInfoPack
 
@@ -604,7 +526,7 @@ class RequestDigest(object):
 
     def __init__(self):
         self.dai = 0
-        self.digest = b''
+        self.data = b''
 
     @classmethod
     def parse(cls, payload):
@@ -614,27 +536,28 @@ class RequestDigest(object):
         rd.dai = utils.u8(payload[offset:])
         offset += 1
         if rd.dai == common.HASH_CODE.MD5.value:
-            rd.digest = payload[offset:offset+common.MD5_DIGEST_SIZE]
+            rd.data = payload[offset:offset+common.MD5_DIGEST_SIZE]
             offset += common.MD5_DIGEST_SIZE
         elif rd.dai == common.HASH_CODE.SHA1.value:
-            rd.digest = payload[offset:offset+common.SHA1_DIGEST_SIZE]
+            rd.data = payload[offset:offset+common.SHA1_DIGEST_SIZE]
             offset += common.SHA1_DIGEST_SIZE
         elif rd.dai == common.HASH_CODE.SHA256.value:
-            rd.digest = payload[offset:offset+common.SHA256_DIGEST_SIZE]
+            rd.data = payload[offset:offset+common.SHA256_DIGEST_SIZE]
         elif rd.dai == common.HASH_CODE.OLD_FORMAT.value:
             offset -= 1
-            rd.digest = utils.unpackByteArray(payload[offset:])
+            rd.data = utils.uba(payload[offset:])
         else:
             logger.critical(f"unimplemented digest parse : {rd.dai:#x}")
         return rd
     
     def pack(self):
-        payload = b''
-        payload += self.digest
-        return payload
+        if self.dai == common.HASH_CODE.OLD_FORMAT.value:
+            return utils.pba(self.data)
+        else:
+            return utils.p8(self.dai) + self.data
 
     def __len__(self):
-        l = len(self.digest)
+        l = len(self.data)
         if l == 0:
             return 0
         elif self.dai == common.HASH_CODE.OLD_FORMAT.value:
@@ -643,4 +566,4 @@ class RequestDigest(object):
             return l + 1
     
     def __str__(self):
-        return f"{utils.printableCode(common.HASH_CODE, self.dai)} : {self.digest.hex()}"
+        return f"{utils.printableCode(common.HASH_CODE, self.dai)} : {self.data.hex()}"
